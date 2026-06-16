@@ -93,7 +93,11 @@ class HeadlessSim {
   }
 
   _runWorkerBundle() {
-    const src = fs.readFileSync(path.join(GAME_DIR, 'simulation_worker.bundle.js'), 'utf8');
+    let src = fs.readFileSync(path.join(GAME_DIR, 'simulation_worker.bundle.js'), 'utf8');
+    // Realtime loop guard is `for (; o > .001; )`. With our fake 1ms-per-pump
+    // clock, o reaches exactly .001 and the strict `>` would never step.
+    // Relax the guard to 1e-9 so each pumpFrame() advances exactly one frame.
+    src = src.replace('for (; o > .001; )', 'for (; o > 1e-9; )');
     vm.runInContext(src, this.ctx, { filename: 'simulation_worker.bundle.js' });
   }
 
@@ -113,6 +117,55 @@ class HeadlessSim {
 
   // Wait for queued microtasks (e.g. Ammo().then) to flush.
   static tick() { return new Promise((r) => setImmediate(r)); }
+
+  // ---- High-level single-car driving API ----------------------------------
+  //
+  // payload: the captured CreateCar message (msg 3) plus the Init trackParts.
+  // We accept the object dumped by bridge/capture_payloads.js: { init, createCar }.
+
+  // Must be called once after init(), AFTER the Ammo().then microtask flushed
+  // (so the worker's handler + step loop exist). Sets up the track + one
+  // controllable car and starts it at frame 0.
+  async loadCar(payload, carId = 1) {
+    const init = payload.init;
+    const cc = payload.createCar;
+    if (!init || !cc) throw new Error('payload needs { init, createCar }');
+
+    this.send({ messageType: MSG.Init, isRealtime: true, trackParts: init.trackParts });
+
+    this.send({
+      messageType: MSG.CreateCar,
+      carId,
+      trackData: cc.trackData,
+      carRecording: null,            // null => live-controllable car
+      mountainVertices: cc.mountainVertices,
+      mountainOffset: cc.mountainOffset,
+      carCollisionShapeVertices: cc.carCollisionShapeVertices,
+      carMassOffset: cc.carMassOffset,
+    });
+
+    this.send({ messageType: MSG.StartCar, carId, targetSimulationTimeFrames: null });
+    this._carId = carId;
+    return this;
+  }
+
+  // Apply controls and advance exactly one frame; return the decoded state.
+  step(controls = {}) {
+    const c = {
+      messageType: MSG.ControlCar,
+      carId: this._carId,
+      up: !!controls.up, right: !!controls.right, down: !!controls.down,
+      left: !!controls.left, reset: !!controls.reset,
+    };
+    this.send(c);
+    this.outbox.length = 0;
+    this._clock += 1;           // advance fake clock 1ms => one 1000Hz frame
+    this.pumpFrame();           // run the worker's rAF step once
+    // The realtime loop beams the latest state as a raw Float32Array buffer.
+    const buf = this.outbox.find((m) => m instanceof ArrayBuffer);
+    if (!buf) return null;      // car not stepping (finished / not started)
+    return this.ctx.reconstructStates(new Float32Array(buf));
+  }
 }
 
 module.exports = { HeadlessSim, MSG };
