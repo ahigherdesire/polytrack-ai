@@ -1,47 +1,53 @@
-// PolyTrack payload capture — paste into the browser DevTools console while
-// the game is open (app.polytrack.com / the local copy), BEFORE loading a track.
+// PolyTrack payload capture — paste into the browser DevTools console with the
+// game open (https://www.kodub.com/apps/polytrack). Works even if the sim
+// worker already exists, because it patches Worker.prototype.postMessage
+// (catches existing + future workers). After pasting, just (re)load the target
+// track so the game sends Init + CreateCar, then run __polyDump("track1").
 //
-// It hooks the Worker message channel and records the exact data the main
-// thread sends to simulation_worker.bundle.js: the Init (trackParts) and
-// CreateCar (trackData, carCollisionShapeVertices, carMassOffset,
-// mountainVertices/offset) payloads. Drive one lap of the target track, then
-// call __polyDump() to download a JSON the headless sim can replay bit-exact.
+// Note: the game runs inside an <iframe> from app-polytrack.kodub.com. Open
+// DevTools, then in the console's top-left context dropdown select that iframe
+// before pasting (otherwise window.Worker is the wrong frame's).
 (() => {
-  const captured = { init: null, createCar: null, all: [] };
+  const captured = { version: location.href, init: null, createCar: null, all: [] };
 
-  const OrigWorker = window.Worker;
-  window.Worker = function (url, opts) {
-    const w = new OrigWorker(url, opts);
-    const origPost = w.postMessage.bind(w);
-    w.postMessage = function (msg, transfer) {
-      try {
-        // messageType enum: Init=0, Verify=1, CreateCar=3 ...
-        if (msg && typeof msg === 'object') {
-          if (msg.messageType === 0) captured.init = structuredCloneSafe(msg);
-          if (msg.messageType === 3) captured.createCar = structuredCloneSafe(msg);
-          captured.all.push(msg.messageType);
-        }
-      } catch (e) { /* ignore */ }
-      return origPost(msg, transfer);
-    };
-    return w;
-  };
-  window.Worker.prototype = OrigWorker.prototype;
-
-  function structuredCloneSafe(o) {
-    // Typed arrays -> plain arrays so they survive JSON.
+  function safe(o) {
     return JSON.parse(JSON.stringify(o, (k, v) =>
       ArrayBuffer.isView(v) ? Array.from(v) : v));
   }
+  function record(msg) {
+    try {
+      if (msg && typeof msg === 'object' && 'messageType' in msg) {
+        if (msg.messageType === 0) captured.init = safe(msg);        // Init (trackParts)
+        if (msg.messageType === 3) captured.createCar = safe(msg);   // CreateCar
+        captured.all.push(msg.messageType);
+      }
+    } catch (e) { /* ignore */ }
+  }
 
+  // Patch the prototype so ALL Worker instances (incl. already-created) are hooked.
+  const proto = Worker.prototype;
+  if (!proto.__polyHooked) {
+    const orig = proto.postMessage;
+    proto.postMessage = function (msg, transfer) {
+      record(msg);
+      return orig.call(this, msg, transfer);
+    };
+    proto.__polyHooked = true;
+  }
+
+  window.__polyCaptured = captured;
   window.__polyDump = function (name = 'polytrack_payload') {
-    const blob = new Blob([JSON.stringify(captured, null, 0)], { type: 'application/json' });
+    if (!captured.createCar) {
+      console.warn('No CreateCar captured yet. (Re)load the track first. Seen types:', captured.all);
+    }
+    const blob = new Blob([JSON.stringify(captured)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name + '.json';
     a.click();
-    console.log('Dumped. Init:', !!captured.init, 'CreateCar:', !!captured.createCar);
+    console.log('Dumped. Init:', !!captured.init, 'CreateCar:', !!captured.createCar,
+      'types seen:', captured.all);
   };
 
-  console.log('[polytrack-capture] hooked. Load a track, then run __polyDump("track1").');
+  console.log('[polytrack-capture] hooked Worker.postMessage. Now (re)load a track, then run __polyDump("track1").');
 })();
