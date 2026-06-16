@@ -9,8 +9,12 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
+const { decodeCarStateBuffer } = require('./carstate');
+
 const GAME_DIR = path.resolve(__dirname, '..', 'game', '0.6.2');
 const LIB_DIR = path.join(GAME_DIR, 'lib');
+
+const f32 = (a) => (a instanceof Float32Array ? a : Float32Array.from(a));
 
 const MSG = {
   Init: 0, Verify: 1, TestDeterminism: 2, CreateCar: 3, DeleteCar: 4,
@@ -121,13 +125,68 @@ class Headless062 {
 
   // Wait until the worker has finished async init (physics + embedded wasm).
   async waitReady(maxTicks = 200) {
-    for (let i = 0; i < maxTicks; i++) {
-      await Headless062.tick();
-      if (this.ctx.onmessage) {
-        // onmessage starts as the queue-pusher; after init it becomes the
-        // real handler. We can't easily distinguish, so just give it time.
+    for (let i = 0; i < maxTicks; i++) await Headless062.tick();
+  }
+
+  // ---- High-level single-car driving API (0.6.2) --------------------------
+  //
+  // constants: the captured Init payload (trackParts, carCollisionShapeVertices,
+  //            carMassOffset).  createCar: the captured CreateCar payload
+  //            (trackData, mountainVertices, mountainOffset) for the chosen track.
+  loadCar(constants, createCar, carId = 1) {
+    // Init: rebuild typed arrays (JSON flattened them) and force realtime so the
+    // rAF step loop runs one frame per pump.
+    const trackParts = constants.trackParts.map((p) => ({
+      id: p.id,
+      vertices: f32(p.vertices),
+      detector: p.detector,      // {type,center[3],size[3]} or null — read by index
+      startOffset: p.startOffset, // [3] or null
+    }));
+    this.send({
+      messageType: MSG.Init,
+      version: '0.6.2',
+      isRealtime: true,
+      trackParts,
+      carCollisionShapeVertices: f32(constants.carCollisionShapeVertices),
+      carMassOffset: constants.carMassOffset,
+    });
+
+    this.send({
+      messageType: MSG.CreateCar,
+      carId,
+      trackData: createCar.trackData,
+      carRecording: null,        // null => live-controllable car
+      mountainVertices: f32(createCar.mountainVertices),
+      mountainOffset: createCar.mountainOffset,
+    });
+
+    this.send({ messageType: MSG.StartCar, carId, targetSimulationTimeFrames: null });
+    this._carId = carId;
+    return this;
+  }
+
+  // Apply controls and advance exactly one frame; return decoded car state.
+  step(controls = {}) {
+    // Send ControlCar BEFORE advancing the clock so the worker stamps the input
+    // at the current frame (its frame = car.frames + (now - loopTime), and
+    // now == loopTime right after the previous pump).
+    this.send({
+      messageType: MSG.ControlCar,
+      carId: this._carId,
+      up: !!controls.up, right: !!controls.right, down: !!controls.down,
+      left: !!controls.left, reset: !!controls.reset,
+    });
+    this.outbox.length = 0;
+    this._clock += 1;
+    this.pumpFrame();
+    // Find the UpdateResult and decode the last car-state buffer.
+    let buf = null;
+    for (const m of this.outbox) {
+      if (m && m.messageType === MSG.UpdateResult && m.carStateBuffers && m.carStateBuffers.length) {
+        buf = m.carStateBuffers[m.carStateBuffers.length - 1];
       }
     }
+    return buf ? decodeCarStateBuffer(buf) : null;
   }
 }
 
