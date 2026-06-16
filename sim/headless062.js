@@ -107,6 +107,19 @@ class Headless062 {
     let src = fs.readFileSync(path.join(GAME_DIR, 'simulation_worker.bundle.js'), 'utf8');
     // Make each fake-clock pump advance exactly one frame (relax strict guard).
     src = src.replace('for(;o>.001;)', 'for(;o>1e-9;)');
+    // Instrument CreateCar to expose the parsed track's checkpoints (waypoints
+    // for navigation / RL observations). The track object `i` is in scope there.
+    // Collect placed track parts (grid x,y,z, type byte, checkpointOrder) as the
+    // worker packs them for the physics engine. Parts with order>=0 are checkpoints.
+    // Capture all 9 forEachPart args: x,y,z, type, rotation, rotationAxis, color,
+    // checkpointOrder, startOrder. (self.__parts is reset on each loadCar.)
+    const partAnchor = '((t,e,i,r,s,n,a,o)=>{c.setUint8(h,r),h++';
+    src = src.replace(partAnchor,
+      '((t,e,i,r,s,n,a,o,O)=>{(self.__parts||(self.__parts=[])).push([t,e,i,r,s,n,a,o??-1,O??-1]);c.setUint8(h,r),h++');
+    // Expose the cars array so we can snapshot/restore the JS-side car counters
+    // (heap holds the physics; together they fully define car state).
+    const carsAnchor = 'o),e.push({id:l,controls:r,userControls:n,hasStarted:!1,frames:0';
+    src = src.replace(carsAnchor, 'o),self.__cars=e,e.push({id:l,controls:r,userControls:n,hasStarted:!1,frames:0');
     vm.runInContext(src, this.ctx, { filename: 'simulation_worker.bundle.js' });
   }
 
@@ -151,18 +164,81 @@ class Headless062 {
       carMassOffset: constants.carMassOffset,
     });
 
-    this.send({
+    // Store the (typed-array) CreateCar message so reset() can re-send it cheaply.
+    this._createMsg = {
       messageType: MSG.CreateCar,
       carId,
       trackData: createCar.trackData,
       carRecording: null,        // null => live-controllable car
       mountainVertices: f32(createCar.mountainVertices),
       mountainOffset: createCar.mountainOffset,
-    });
-
+    };
+    this.ctx.__parts = [];       // fresh snapshot of placed parts for this track
+    this.send(this._createMsg);
+    this._parts = this.ctx.__parts;
     this.send({ messageType: MSG.StartCar, carId, targetSimulationTimeFrames: null });
     this._carId = carId;
     return this;
+  }
+
+  // Checkpoints incl. finish, sorted by order: {order, type, grid:{x,y,z}, rotation}.
+  checkpoints() {
+    const seen = new Map();
+    for (const p of this._parts || []) {
+      const order = p[7];
+      if (order >= 0 && !seen.has(order)) {
+        seen.set(order, { order, type: p[3], grid: { x: p[0], y: p[1], z: p[2] }, rotation: p[4] });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.order - b.order);
+  }
+
+  // Reset the car to the start line without reloading the wasm (delete+recreate).
+  // Cheap enough to run thousands of rollouts per second.
+  reset() {
+    this.send({ messageType: MSG.DeleteCar, carId: this._carId });
+    this.send(this._createMsg);
+    this.send({ messageType: MSG.StartCar, carId: this._carId, targetSimulationTimeFrames: null });
+    return this;
+  }
+
+  _car() { return (this.ctx.__cars || []).find((c) => c.id === this._carId); }
+
+  // Snapshot the full car state: wasm heap (physics) + JS-side car counters.
+  // Cheap branching for search / TAS without replaying from the start.
+  snapshot() {
+    const car = this._car();
+    const uc = car.userControls;
+    return {
+      heap: this.physics.HEAPU8.slice(),
+      frames: car.frames, hasStarted: car.hasStarted, isPaused: car.isPaused,
+      uc: { up: uc.up, right: uc.right, down: uc.down, left: uc.left, reset: uc.reset, buffer: uc.buffer.map((b) => ({ ...b })) },
+    };
+  }
+
+  restore(s) {
+    this.physics.HEAPU8.set(s.heap);
+    const car = this._car();
+    car.frames = s.frames; car.hasStarted = s.hasStarted; car.isPaused = s.isPaused;
+    const uc = car.userControls;
+    uc.up = s.uc.up; uc.right = s.uc.right; uc.down = s.uc.down; uc.left = s.uc.left; uc.reset = s.uc.reset;
+    uc.buffer.length = 0;
+    for (const b of s.uc.buffer) uc.buffer.push({ ...b });
+  }
+
+  // Run a full input sequence from the start; return the trajectory summary.
+  // actions: array of {up,right,down,left,reset}. Stops at finish or end.
+  rollout(actions) {
+    this.reset();
+    let maxCheckpoint = 0, finishFrames = null, frames = 0, last = null;
+    for (let k = 0; k < actions.length; k++) {
+      const s = this.step(actions[k]);
+      if (!s) break;
+      last = s; frames = s.frames;
+      if (s.nextCheckpointIndex > maxCheckpoint) maxCheckpoint = s.nextCheckpointIndex;
+      if (s.finishFrames !== null) { finishFrames = s.finishFrames; break; }
+    }
+    return { maxCheckpoint, finishFrames, frames, last };
   }
 
   // Apply controls and advance exactly one frame; return decoded car state.
