@@ -1,0 +1,11 @@
+{
+  "name": "polytrack-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An AI that learns to drive PolyTrack, by running the game's own deterministic physics headless at high speed.",
+  "scripts": {
+    "probe:ammo": "node sim/ammo_probe.js",
+    "test:determinism": "node sim/test_determinism.js"
+  },
+  "license": "MIT"
+}

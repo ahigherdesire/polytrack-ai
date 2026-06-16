@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+runs/
+checkpoints/
+*.log
+data/*.json
+!data/.gitkeep
