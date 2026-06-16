@@ -20,16 +20,28 @@ achievable because its physics is **deterministic** (it ships a determinism
 self-test) and runs in a **separate worker** we can drive independently of
 rendering.
 
+## Versions
+
+The **live** game (https://www.kodub.com/apps/polytrack) is **0.6.2**, served from
+`https://app-polytrack.kodub.com/0.6.2/`. That is our target — its physics is what
+produces the current world records. We keep an older `0.5.0` build too (it used
+Ammo/Bullet; useful as a cross-check), but **0.6.2 is primary**.
+
+> Physics engine changed between versions: 0.5.0 used **Ammo.js (Bullet)**; 0.6.2
+> uses a **custom Emscripten C engine** `lib/polytrack_physics.js` with a clean C
+> API (`_createCarModel`, `_updateCarModel`, `_addTrackPartConfiguration`,
+> `_testDeterminism`, ...). Both are deterministic, fixed **1 ms/frame (1000 fps)**.
+
 ## What is already proven (✓)
 
-- PolyTrack's physics is **Ammo.js (Bullet) compiled to WASM**, driven by
-  `simulation_worker.bundle.js` at a **fixed 1 ms / frame (1000 fps of game time)**.
-- We load the game's **exact** `ammo.wasm` + simulation worker **headless in Node**
-  (`sim/headless.js`) by shimming the Web Worker environment in a clean `vm`
-  context (no `process`/`Buffer`, so bundled libs take their browser code paths).
-- The game's own **determinism self-test passes headless**:
-  `npm run test:determinism` → `isDeterminstic = true`. This is the critical proof
-  that inputs found here will transfer bit-exact to the browser.
+- **0.6.2 (live):** the custom `polytrack_physics` engine loads headless in Node
+  (`npm run probe:physics062`) and the **full worker bundle** (Three.js + engine +
+  embedded wasm) boots in a clean `vm` sandbox and **passes the determinism
+  self-test**: `npm run test:determinism:062` → `isDeterminstic = true`.
+- **0.5.0 (archive):** same approach over Ammo/Bullet; `npm run test:determinism`
+  → `true`.
+- This is the critical proof that inputs found in our headless sim transfer
+  **bit-exact** to the browser — the thing that defeats every screen-capture bot.
 
 ## Architecture
 
@@ -80,10 +92,10 @@ data/    Captured/ fetched track + car payloads, recordings
 
 ## Roadmap / status
 
-- [x] Load Ammo/Bullet WASM headless in Node
-- [x] Run the real simulation worker headless; pass determinism self-test
-- [ ] Get a real `CreateCar` payload (browser via `bridge/capture_payloads.js`,
-      or fetch official track + WR recording from the API)
+- [x] Load the physics WASM headless in Node (0.5.0 Ammo **and** 0.6.2 custom engine)
+- [x] Run the real simulation worker headless; pass determinism self-test (0.5.0 **and** 0.6.2)
+- [ ] Decode the 0.6.2 `carStateBuffers` layout (read from the main bundle's reader)
+- [ ] Get a real `CreateCar` payload from live 0.6.2 (`bridge/capture_payloads.js`)
 - [ ] Closed-loop single-car stepping: ControlCar + 1 frame + read state, at max speed
 - [ ] Gym env (obs = state vs. track centerline + lookahead; action = 5 inputs;
       reward = progress/time) with many parallel processes
