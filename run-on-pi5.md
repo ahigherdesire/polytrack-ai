@@ -159,15 +159,21 @@ sudo systemctl restart polytrack-train
 **Update everything after PC-side changes:** re-run the Step 1 `scp -r`, then
 `sudo systemctl restart polytrack-train polytrack-dashboard`.
 
-**Train a different / custom track** (stop the service first so they don't fight for
-cores):
+**Train a different / custom track.** Track files live in the **`track data/`** folder
+(quote the path — it has a space). First send the track file from your PC:
+```powershell
+# on your PC (note the quotes around the spaced paths):
+cd "C:\Users\LIXINYUAN\interesting stuff"
+scp "polytrack-ai/track data/mytrack.json" "rp5user@raspberrypi5.local:~/polytrack-ai/track data/"
+```
+Then on the Pi (stop the default service first so they don't fight for cores):
 ```bash
 sudo systemctl stop polytrack-train polytrack-dashboard
 cd ~/polytrack-ai
-TRACK=data/mytrack.json node train/es_parallel.js 1000000 24 16000 3 > train-mytrack.log 2>&1 &
-TRACK=data/mytrack.json node train/dashboard.js train-mytrack.log 7780
+TRACK="track data/mytrack.json" node train/es_parallel.js 1000000 24 16000 3 > train-mytrack.log 2>&1 &
+TRACK="track data/mytrack.json" node train/dashboard.js train-mytrack.log 7780
 ```
-(See `instructions.md` for how to capture a track into `data/mytrack.json`.)
+(See `instructions.md` for how to capture a track into `track data/`.)
 
 **Stop / start training:**
 ```bash

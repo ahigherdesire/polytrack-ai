@@ -56,32 +56,47 @@ The AI needs the track's data. You grab it once from the **real game**.
    __polyDump("mytrack")
    ```
    It downloads **`mytrack.json`** (console should say `createCar: true`).
-6. In your project terminal, convert it:
-   ```bash
-   node train/make-track.js "C:/Users/LIXINYUAN/Downloads/mytrack.json" mytrack
-   ```
-   That writes `data/mytrack.json` and prints the train/watch commands.
+6. Get the file into the project's **`track data/`** folder (where all track JSONs live):
+   - **If the dump has `init` AND `createCar`** (the full reload-hook capture, like
+     `haoyuone.json`) → it's ready as-is. Just move it into `track data/`.
+   - **If it only has `createCar`** → run make-track to complete it (it borrows the
+     shared `Init` and writes straight into `track data/`):
+     ```bash
+     node train/make-track.js "C:/Users/LIXINYUAN/Downloads/mytrack.json" mytrack
+     ```
+     → writes `track data/mytrack.json` and prints the train/watch commands.
 
-> The very first time, you also need `data/constants.json` (it holds the shared
-> `Init` constants). It's already captured for Summer 1. `make-track.js` borrows
-> those constants automatically, so for new tracks you only need `createCar: true`.
+> All track input files live in **`track data/`**. The shared `Init` constants live in
+> `data/constants.json` (captured once for Summer 1); `make-track.js` borrows them
+> automatically, so a new track only needs `createCar: true`.
+>
+> ⚠️ The folder name has a **space**, so always **quote** the path in commands:
+> `TRACK="track data/mytrack.json"`. (Renaming the folder to `tracks` avoids the quotes.)
 
 ---
 
 ## 3. Train a track
 
+Point `TRACK` at a file in **`track data/`** (quote it — it has a space):
+
 ```bash
-TRACK=data/mytrack.json node train/es_parallel.js 1000000 78 16000 13
+TRACK="track data/mytrack.json" node train/es_parallel.js 1000000 78 16000 13
 ```
-- Each track keeps its **own** files — `data/policy.<name>.json` and
+- Each track keeps its **own** output files — `data/policy.<name>.json` and
   `data/es_lap.<name>.json` — so tracks never overwrite each other.
 - It **resumes automatically** if a policy file for that track already exists.
 - Leave it running; it logs to wherever you redirect it. To watch, point the
   dashboard at the same track + log:
   ```bash
-  TRACK=data/mytrack.json node train/dashboard.js train-mytrack.log 7780
+  TRACK="track data/mytrack.json" node train/dashboard.js train-mytrack.log 7780
   ```
-  (Default with no `TRACK` is Summer 1: `policy.json` / `es_lap.json` / `train3.log`.)
+  (Default with no `TRACK` is Summer 1: `data/constants.json` → `policy.json` /
+  `es_lap.json` / `train3.log`.)
+
+On **Windows PowerShell** the env-var syntax differs — set it first:
+```powershell
+$env:TRACK="track data/mytrack.json"; node train/es_parallel.js 1000000 78 16000 13
+```
 
 **Tip:** a simple custom track (a gentle oval with a few checkpoints) is the fastest
 way to get a first *complete, finishing* lap and prove the whole thing end-to-end.
