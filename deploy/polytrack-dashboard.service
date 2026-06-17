@@ -1,0 +1,14 @@
+[Unit]
+Description=PolyTrack AI - dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/polytrack-ai
+ExecStart=/usr/bin/node train/dashboard.js train3.log 7780
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

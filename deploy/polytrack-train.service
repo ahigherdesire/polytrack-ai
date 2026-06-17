@@ -1,0 +1,20 @@
+[Unit]
+Description=PolyTrack AI - training (Evolution Strategies)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/polytrack-ai
+# 4 GB Pi (4 cores): 3 workers, population 24. Tune to taste.
+ExecStart=/usr/bin/node train/es_parallel.js 1000000 24 16000 3
+# Dashboard reads this file:
+StandardOutput=append:/home/pi/polytrack-ai/train3.log
+StandardError=append:/home/pi/polytrack-ai/train3.log
+Restart=on-failure
+RestartSec=5
+# Keep memory in check on a 4 GB Pi:
+MemoryMax=2500M
+
+[Install]
+WantedBy=multi-user.target
