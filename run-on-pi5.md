@@ -85,18 +85,26 @@ The Pi 5 has 4 cores → use **3 workers**, population **24**. Pick ONE option.
 
 ### Option A — systemd (auto-starts on boot, auto-restarts on crash) ✅ recommended
 
-The service files in `deploy/` assume username `pi`; this fills in **your** username
-and home path automatically. **On the Pi:**
+The service files in `deploy/` are templates assuming username `pi`; they must be
+copied into `/etc/systemd/system` before systemd knows about them. This fills in
+**your** username, home path, and the real `node` location automatically. **On the
+Pi:**
 ```bash
 cd ~/polytrack-ai
-sed "s#/home/pi/polytrack-ai#$HOME/polytrack-ai#g; s#User=pi#User=$USER#g" \
+which node || bash deploy/setup-pi.sh        # ensure Node is installed first
+NODE=$(which node)
+sed "s#/home/pi/polytrack-ai#$HOME/polytrack-ai#g; s#User=pi#User=$USER#g; s#/usr/bin/node#$NODE#g" \
   deploy/polytrack-train.service | sudo tee /etc/systemd/system/polytrack-train.service >/dev/null
-sed "s#/home/pi/polytrack-ai#$HOME/polytrack-ai#g; s#User=pi#User=$USER#g" \
+sed "s#/home/pi/polytrack-ai#$HOME/polytrack-ai#g; s#User=pi#User=$USER#g; s#/usr/bin/node#$NODE#g" \
   deploy/polytrack-dashboard.service | sudo tee /etc/systemd/system/polytrack-dashboard.service >/dev/null
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now polytrack-train polytrack-dashboard
 ```
+
+> If `systemctl status polytrack-train` says *"Unit could not be found"*, you haven't
+> run the block above yet — the `.service` files only become real services after the
+> `sudo tee … /etc/systemd/system/` + `daemon-reload`.
 Now training runs forever (survives reboots + crashes), logging to
 `~/polytrack-ai/train3.log`, and the dashboard is already up.
 
