@@ -88,6 +88,34 @@ way to get a first *complete, finishing* lap and prove the whole thing end-to-en
 
 ---
 
+## 3.5 Change the reward (what the AI optimizes)
+
+All the reward "knobs" are a single labeled block at the top of
+**`train/evaluator.js`** — edit the numbers, then **restart training** for them to
+take effect:
+
+```js
+const REWARD = {
+  perCheckpoint: 3000,    // reward per checkpoint passed
+  distanceWeight: 1,      // pull toward the next checkpoint (per world-unit)
+  finishBonus: 2e6,       // one-time reward for completing the lap
+  finishTimeWeight: 1,    // raise this to reward a FASTER lap more (record times)
+  stuckFrames: 700,       // end a run after this many frames of no progress
+  stuckSpeed: 8,          // "stopped" threshold (km/h) for the above
+};
+```
+
+Common tweaks:
+- **Want faster laps once it finishes?** raise `finishTimeWeight` (e.g. `5`).
+- **Stuck before a checkpoint and you want it to push harder toward it?** raise
+  `distanceWeight` (e.g. `2`).
+- **Care only about finishing first, speed later?** keep `finishTimeWeight: 1` for now.
+- Mutation/learning-rate knobs (`SIGMA`, `LR`) and population/frames live in
+  `train/es_parallel.js` if you want to go deeper.
+
+> Restarting re-reads the reward but **resumes the policy** from `policy.<track>.json`,
+> so you keep your progress. (Delete that file first if you want a clean restart.)
+
 ## 4. What it produces
 
 In `data/`:

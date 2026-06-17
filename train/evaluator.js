@@ -4,6 +4,25 @@ const { gridToWorld } = require('../sim/geom');
 const { buildOccupancy } = require('../sim/track_sensors');
 const { Policy } = require('./policy');
 
+// ============================================================================
+//  REWARD KNOBS — tune these to change what the AI optimizes, then restart
+//  training. (See instructions.md "Change the reward".)
+// ============================================================================
+const REWARD = {
+  perCheckpoint: 3000,   // reward for each checkpoint passed. Higher = care more
+                         //   about reaching checkpoints than anything else.
+  distanceWeight: 1,     // penalty per world-unit of distance to the next
+                         //   checkpoint. Higher = stronger pull toward the goal.
+  finishBonus: 2e6,      // one-time reward for completing the lap (must dwarf the
+                         //   checkpoint terms so finishing always wins).
+  finishTimeWeight: 1,   // subtract this * finishFrames. Raise it to reward a
+                         //   FASTER lap more aggressively (key for record times).
+  stuckFrames: 700,      // end the run after this many frames of no progress while
+                         //   nearly stopped (saves time on dead policies).
+  stuckSpeed: 8,         // "nearly stopped" threshold, km/h.
+};
+// ============================================================================
+
 const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 function setupTrack(sim) {
@@ -35,10 +54,12 @@ function makeEvaluate(sim, cps, start, occ) {
       const prog = d3(s.position, tgt(s.nextCheckpointIndex));
       if (prog < prevProg - 0.5) { prevProg = prog; stuckFor = 0; } else stuckFor++;
       if (s.finishFrames !== null) { finish = s.finishFrames; break; }
-      if (stuckFor > 700 && Math.abs(s.speedKmh) < 8) break;
+      if (stuckFor > REWARD.stuckFrames && Math.abs(s.speedKmh) < REWARD.stuckSpeed) break;
     }
     const distEnd = last ? d3(last.position, tgt(last.nextCheckpointIndex)) : 1e4;
-    const reward = maxCp * 3000 - distEnd + (finish !== null ? 2e6 - finish : 0);
+    const reward = maxCp * REWARD.perCheckpoint
+      - distEnd * REWARD.distanceWeight
+      + (finish !== null ? REWARD.finishBonus - finish * REWARD.finishTimeWeight : 0);
     return { reward, frames: last ? last.frames : 0, maxCp, finish, actions };
   };
 }
