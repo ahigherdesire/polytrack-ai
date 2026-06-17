@@ -12,6 +12,10 @@ const { Policy } = require('./policy');
 
 const DATA = path.resolve(__dirname, '..', 'data');
 const LOG = process.argv[2] || path.join(__dirname, '..', 'train3.log');
+// Track to visualize (match the TRACK you trained). Default = Summer 1.
+const TRACK = process.env.TRACK ? path.resolve(process.env.TRACK) : path.join(DATA, 'constants.json');
+const TAG = path.basename(TRACK, '.json');
+const POLICY_FILE = path.join(DATA, TAG === 'constants' ? 'policy.json' : `policy.${TAG}.json`);
 const PORT = parseInt(process.argv[3] || '7780', 10);
 
 const LINE = /gen\s+(\d+)\s+bestCp=(\d+)\s+bestReward=([-\d.]+)(?:\s+FINISH=([\d.]+)s)?\s+\((\d+)s,\s+([\d.]+)\s+gen\/s\)/g;
@@ -24,7 +28,7 @@ function parseLog() {
 }
 
 (async () => {
-  const payload = JSON.parse(fs.readFileSync(path.join(DATA, 'constants.json'), 'utf8'));
+  const payload = JSON.parse(fs.readFileSync(TRACK, 'utf8'));
   const sim = await new Headless062().init();
   await sim.waitReady();
   sim.loadCar(payload.init, payload.createCar);
@@ -44,7 +48,7 @@ function parseLog() {
   function replayBest() {
     if (Date.now() - lapCache.t < 2500 && lapCache.data) return lapCache.data;
     let weights = null;
-    try { weights = JSON.parse(fs.readFileSync(path.join(DATA, 'policy.json'), 'utf8')).weights; } catch { }
+    try { weights = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8')).weights; } catch { }
     if (!weights || weights.length !== policy.n) { lapCache = { t: Date.now(), data: { path: [], maxCp: 0, finish: null } }; return lapCache.data; }
     policy.setWeights(weights);
     sim.reset();

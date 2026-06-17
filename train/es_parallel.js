@@ -10,7 +10,13 @@ const { Worker } = require('worker_threads');
 const { gaussian, POLICY_SHAPE } = require('./evaluator');
 
 const DATA = path.resolve(__dirname, '..', 'data');
-const CONSTANTS = path.join(DATA, 'constants.json');
+// Track to train on. Default = Summer 1 (constants.json). Train another track via:
+//   TRACK=data/winter1.json node train/es_parallel.js ...
+// Each track keeps its own policy/lap files so they never clobber each other.
+const CONSTANTS = process.env.TRACK ? path.resolve(process.env.TRACK) : path.join(DATA, 'constants.json');
+const TAG = path.basename(CONSTANTS, '.json');
+const POLICY_FILE = path.join(DATA, TAG === 'constants' ? 'policy.json' : `policy.${TAG}.json`);
+const LAP_FILE = path.join(DATA, TAG === 'constants' ? 'es_lap.json' : `es_lap.${TAG}.json`);
 const GENS = parseInt(process.argv[2] || '500', 10);
 const POP = parseInt(process.argv[3] || '56', 10);            // even
 const MAXF = parseInt(process.argv[4] || '16000', 10);
@@ -40,9 +46,9 @@ const ask = (w, msg) => new Promise((res) => { w._pending = res; w.postMessage(m
 
   // Init / resume theta.
   let theta = new Float64Array(NWEIGHTS);
-  if (fs.existsSync(path.join(DATA, 'policy.json'))) {
-    const saved = JSON.parse(fs.readFileSync(path.join(DATA, 'policy.json'), 'utf8'));
-    if (saved.weights && saved.weights.length === NWEIGHTS) { theta.set(saved.weights); console.log('resumed from data/policy.json'); }
+  if (fs.existsSync(POLICY_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(POLICY_FILE, 'utf8'));
+    if (saved.weights && saved.weights.length === NWEIGHTS) { theta.set(saved.weights); console.log('resumed from ' + path.basename(POLICY_FILE)); }
   }
   if (theta.every((x) => x === 0)) for (let i = 0; i < theta.length; i++) theta[i] = (Math.random() * 2 - 1) * 0.1;
 
@@ -89,7 +95,7 @@ const ask = (w, msg) => new Promise((res) => { w._pending = res; w.postMessage(m
 
     const secs = ((Date.now() - t0) / 1000).toFixed(0);
     console.log(`gen ${String(g).padStart(3)} bestCp=${bestCp} bestReward=${bestReward.toFixed(0)} ${bestFinish !== null ? `FINISH=${(bestFinish / 1000).toFixed(3)}s` : ''} (${secs}s, ${(g / ((Date.now() - t0) / 1000)).toFixed(2)} gen/s)`);
-    fs.writeFileSync(path.join(DATA, 'policy.json'), JSON.stringify({ nIn, nH, nOut, weights: Array.from(bestTheta), bestReward }));
+    fs.writeFileSync(POLICY_FILE, JSON.stringify({ nIn, nH, nOut, weights: Array.from(bestTheta), bestReward }));
 
     // Whenever the all-time best improves, record that policy's lap (the input
     // sequence) and save it — so es_lap.json always holds the current best lap,
@@ -97,7 +103,7 @@ const ask = (w, msg) => new Promise((res) => { w._pending = res; w.postMessage(m
     if (bestReward > lastLapReward) {
       lastLapReward = bestReward;
       const rec = await ask(workers[0], { type: 'record', weights: Array.from(bestTheta), maxf: MAXF });
-      fs.writeFileSync(path.join(DATA, 'es_lap.json'), JSON.stringify({
+      fs.writeFileSync(LAP_FILE, JSON.stringify({
         generation: g, bestReward, maxCheckpoint: rec.maxCp,
         finishFrames: rec.finish, finishSeconds: rec.finish !== null ? rec.finish / 1000 : null,
         frames: rec.actions.length, actions: rec.actions,
