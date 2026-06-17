@@ -115,7 +115,7 @@ class Headless062 {
     // checkpointOrder, startOrder. (self.__parts is reset on each loadCar.)
     const partAnchor = '((t,e,i,r,s,n,a,o)=>{c.setUint8(h,r),h++';
     src = src.replace(partAnchor,
-      '((t,e,i,r,s,n,a,o,O)=>{(self.__parts||(self.__parts=[])).push([t,e,i,r,s,n,a,o??-1,O??-1]);c.setUint8(h,r),h++');
+      '((t,e,i,r,s,n,a,o,O)=>{if(self.__collectParts){(self.__parts||(self.__parts=[])).push([t,e,i,r,s,n,a,o??-1,O??-1]);}c.setUint8(h,r),h++');
     // Expose the cars array so we can snapshot/restore the JS-side car counters
     // (heap holds the physics; together they fully define car state).
     const carsAnchor = 'o),e.push({id:l,controls:r,userControls:n,hasStarted:!1,frames:0';
@@ -173,8 +173,10 @@ class Headless062 {
       mountainVertices: f32(createCar.mountainVertices),
       mountainOffset: createCar.mountainOffset,
     };
-    this.ctx.__parts = [];       // fresh snapshot of placed parts for this track
+    this.ctx.__parts = [];       // capture placed parts ONCE (not on every reset)
+    this.ctx.__collectParts = true;
     this.send(this._createMsg);
+    this.ctx.__collectParts = false;
     this._parts = this.ctx.__parts;
     this.send({ messageType: MSG.StartCar, carId, targetSimulationTimeFrames: null });
     this._carId = carId;
