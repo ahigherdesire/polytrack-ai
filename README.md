@@ -4,6 +4,7 @@ An AI that **learns to drive** [PolyTrack](https://www.kodub.com/apps/polytrack)
 game's own physics headless and training a neural-network policy with Evolution
 Strategies — aiming at world-record lap times.
 
+<<<<<<< HEAD
 ---
 
 ## Why it's built this way
