@@ -133,12 +133,14 @@ API) — that bridge is the next thing to build.
 
 ## 5. Run it on a Raspberry Pi
 
-See **`deploy/DEPLOY.md`** for the full guide. Short version:
+See **`run-on-pi5.md`** for the full step-by-step (and `deploy/DEPLOY.md` for wiping
+the Pi). Short version (from Windows PowerShell — use `scp`, not rsync):
 1. Wipe the Pi: reflash with **Raspberry Pi Imager** → *Raspberry Pi OS Lite (64-bit)*,
    enable SSH/Wi-Fi in the gear menu.
-2. Copy the project (includes the required `data/constants.json`):
-   ```bash
-   rsync -av --exclude '*.log' "polytrack-ai/" pi@<pi-ip>:~/polytrack-ai/
+2. Copy the project (run from the parent folder; address is `username@host`):
+   ```powershell
+   cd "C:\Users\LIXINYUAN\interesting stuff"
+   scp -r polytrack-ai rp5user@raspberrypi5.local:~/
    ```
 3. On the Pi: `cd ~/polytrack-ai && bash deploy/setup-pi.sh`
 4. Train with **3 workers**: `node train/es_parallel.js 1000000 24 16000 3`

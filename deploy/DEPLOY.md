@@ -30,18 +30,22 @@ from your PC with **Raspberry Pi Imager** (https://www.raspberrypi.com/software/
 
 ## B. Copy the project to the Pi
 
-From your PC, in the parent of the project folder. Pick one:
+From your PC, in the **parent** of the project folder. The address is
+`username@host` (username first!).
 
-**rsync (recommended — skips junk):**
+**Windows (PowerShell) — use `scp` (Windows has no rsync); the project is ~25 MB:**
+```powershell
+cd "C:\Users\LIXINYUAN\interesting stuff"
+scp -r polytrack-ai rp5user@raspberrypi5.local:~/
+```
+
+**macOS / Linux — rsync also works (skips junk):**
 ```bash
 rsync -av --exclude node_modules --exclude '*.log' \
-  "polytrack-ai/" pi@<pi-ip>:~/polytrack-ai/
+  "polytrack-ai/" rp5user@raspberrypi5.local:~/polytrack-ai/
 ```
 
-**or scp the folder:**
-```bash
-scp -r polytrack-ai pi@<pi-ip>:~/
-```
+(See `run-on-pi5.md` for full Pi-5 step-by-step + troubleshooting.)
 
 > IMPORTANT: `data/constants.json` (~14 MB) is required and is **git-ignored**, so a
 > `git clone` would NOT include it. rsync/scp of the folder above DOES include it.
