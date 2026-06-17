@@ -1,6 +1,7 @@
 // Shared lap-evaluation logic for the ES trainers (single + parallel).
 const { observe } = require('../sim/observe');
 const { gridToWorld } = require('../sim/geom');
+const { buildOccupancy } = require('../sim/track_sensors');
 const { Policy } = require('./policy');
 
 const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -8,11 +9,12 @@ const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 function setupTrack(sim) {
   const cps = sim.checkpoints().map((c) => gridToWorld(c.grid));
   const start = sim.rollout([{ up: false }]).last.position;
-  return { cps, start };
+  const occ = buildOccupancy(sim._parts);
+  return { cps, start, occ };
 }
 
 // Returns evaluate(weights, maxf, record) -> {reward, frames, maxCp, finish, actions?}
-function makeEvaluate(sim, cps, start) {
+function makeEvaluate(sim, cps, start, occ) {
   const policy = new Policy(observe.SIZE, 16, 4);
   const tgt = (i) => (i < cps.length ? cps[i] : start);
 
@@ -24,7 +26,7 @@ function makeEvaluate(sim, cps, start) {
     for (let f = 0; f < maxf; f++) {
       const s0 = last || sim.step({ up: false });
       const idx = s0.nextCheckpointIndex;
-      const a = policy.act(observe(s0, [tgt(idx), tgt(idx + 1)]));
+      const a = policy.act(observe(s0, [tgt(idx), tgt(idx + 1)], occ));
       const s = sim.step(a);
       if (record) actions.push(a);
       if (!s) break;

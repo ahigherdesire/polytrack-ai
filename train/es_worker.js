@@ -10,8 +10,8 @@ const { setupTrack, makeEvaluate } = require('./evaluator');
   const sim = await new Headless062().init();
   await sim.waitReady();
   sim.loadCar(payload.init, payload.createCar);
-  const { cps, start } = setupTrack(sim);
-  const evaluate = makeEvaluate(sim, cps, start);
+  const { cps, start, occ } = setupTrack(sim);
+  const evaluate = makeEvaluate(sim, cps, start, occ);
 
   parentPort.postMessage({ type: 'ready', cps: cps.length });
 

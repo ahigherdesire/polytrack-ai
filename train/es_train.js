@@ -8,6 +8,7 @@ const path = require('path');
 const { Headless062 } = require('../sim/headless062');
 const { observe } = require('../sim/observe');
 const { gridToWorld } = require('../sim/geom');
+const { buildOccupancy } = require('../sim/track_sensors');
 const { Policy } = require('./policy');
 
 const GENS = parseInt(process.argv[2] || '40', 10);
@@ -23,6 +24,7 @@ const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   sim.loadCar(payload.init, payload.createCar);
   const cps = sim.checkpoints().map((c) => gridToWorld(c.grid));
   const start = sim.rollout([{ up: false }]).last.position;
+  const occ = buildOccupancy(sim._parts);
   const tgt = (i) => (i < cps.length ? cps[i] : start);
 
   const policy = new Policy(observe.SIZE, 16, 4);
@@ -36,7 +38,7 @@ const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
     for (let f = 0; f < MAXF; f++) {
       const s0 = last || sim.step({ up: false });        // bootstrap first obs
       const idx = s0.nextCheckpointIndex;
-      const obs = observe(s0, [tgt(idx), tgt(idx + 1)]);
+      const obs = observe(s0, [tgt(idx), tgt(idx + 1)], occ);
       const a = policy.act(obs);
       const s = sim.step(a);
       if (record) actions.push(a);
