@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA = path.resolve(__dirname, '..', 'data');           // constants.json + outputs
-const TRACKS = path.resolve(__dirname, '..', 'track data');   // track input files
+const TRACKS = path.resolve(__dirname, '..', 'tracks');   // track input files
 const [, , capPath, name] = process.argv;
 if (!capPath || !name) { console.error('usage: node train/make-track.js <captured.json> <name>'); process.exit(1); }
 
@@ -35,5 +35,5 @@ fs.mkdirSync(TRACKS, { recursive: true });
 const out = path.join(TRACKS, name + '.json');
 fs.writeFileSync(out, JSON.stringify({ init, createCar }));
 console.log(`wrote ${out}`);
-console.log(`train:  TRACK="track data/${name}.json" node train/es_parallel.js 1000000 78 16000 13`);
-console.log(`watch:  TRACK="track data/${name}.json" node train/dashboard.js train-${name}.log 7780`);
+console.log(`train:  TRACK="tracks/${name}.json" node train/es_parallel.js 1000000 78 16000 13`);
+console.log(`watch:  TRACK="tracks/${name}.json" node train/dashboard.js train-${name}.log 7780`);

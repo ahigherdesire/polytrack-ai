@@ -119,42 +119,42 @@ The AI needs the track's data, grabbed once from the **real game**.
    ```
    It downloads **`haoyuone.json`** to your Downloads. The console should say
    `createCar: true` (and ideally `init: true`).
-6. Put it in the project's **`track data/`** folder (where all track files live):
+6. Put it in the project's **`tracks/`** folder (where all track files live):
    - **If it printed `init: true` AND `createCar: true`** → it's complete. Move
-     `haoyuone.json` into `polytrack-ai\track data\`.
+     `haoyuone.json` into `polytrack-ai\tracks\`.
    - **If only `createCar: true`** → complete it with make-track (it borrows the
-     shared `Init` and writes into `track data/`):
+     shared `Init` and writes into `tracks/`):
      ```powershell
      cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"
      node train/make-track.js "C:/Users/LIXINYUAN/Downloads/haoyuone.json" haoyuone
      ```
 
-> ⚠️ The folder name has a **space**, so always **quote** the path:
-> `"track data/haoyuone.json"`. (Renaming the folder to `tracks` removes the need to
-> quote — ask me and I'll do it.)
+> All track input files live in **`tracks/`**. The shared `Init` constants live in
+> `data/constants.json`; `make-track.js` borrows them automatically.
 
 ---
 
 ## 5. Send the track to the Pi (on your PC)
 
-**On your PC (PowerShell)** — note the quotes around the spaced paths on *both* sides:
+**On your PC (PowerShell).** First make sure the `tracks/` folder exists on the Pi
+(scp fails with `dest open … Failure` if it doesn't), then copy the file:
 ```powershell
-cd "C:\Users\LIXINYUAN\interesting stuff"
-scp "polytrack-ai/track data/haoyuone.json" "rp5user@raspberrypi5.local:~/polytrack-ai/track data/"
+ssh rp5user@raspberrypi5.local "mkdir -p ~/polytrack-ai/tracks"
+scp polytrack-ai/tracks/haoyuone.json rp5user@raspberrypi5.local:~/polytrack-ai/tracks/
 ```
-It asks for your Pi password, then copies the one file over (tiny, instant).
+Each asks for your Pi password. The copy is tiny/instant.
 
 ---
 
 ## 6. Train that track (on the Pi)
 
 Stop the default Summer 1 training first so they don't fight for cores, then start
-the new track. Quote the path (it has a space):
+the new track:
 ```bash
 sudo systemctl stop polytrack-train polytrack-dashboard      # if using systemd
 cd ~/polytrack-ai
-TRACK="track data/haoyuone.json" node train/es_parallel.js 1000000 24 16000 3 > train-haoyuone.log 2>&1 &
-TRACK="track data/haoyuone.json" node train/dashboard.js train-haoyuone.log 7780
+TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 24 16000 3 > train-haoyuone.log 2>&1 &
+TRACK=tracks/haoyuone.json node train/dashboard.js train-haoyuone.log 7780
 ```
 - Each track keeps its **own** output files: `data/policy.haoyuone.json` and
   `data/es_lap.haoyuone.json` — it never overwrites Summer 1.
@@ -230,15 +230,16 @@ Submitting a finished lap to the leaderboard happens from a **browser on your PC
 systemctl status polytrack-train                 # is it training?
 tail -n 5 train3.log                             # latest gens (default track)
 sudo systemctl restart polytrack-train           # apply a reward change
-TRACK="track data/X.json" node train/es_parallel.js 1000000 24 16000 3 > train-X.log 2>&1 &
-TRACK="track data/X.json" node train/dashboard.js train-X.log 7780
+TRACK=tracks/X.json node train/es_parallel.js 1000000 24 16000 3 > train-X.log 2>&1 &
+TRACK=tracks/X.json node train/dashboard.js train-X.log 7780
 node sim/test_determinism062.js                  # physics self-test (-> true)
 vcgencmd measure_temp                            # Pi temperature
 ```
 **On your PC (PowerShell):**
 ```powershell
 ssh rp5user@raspberrypi5.local                                   # log in
-scp "polytrack-ai/track data/X.json" "rp5user@raspberrypi5.local:~/polytrack-ai/track data/"   # send a track
+ssh rp5user@raspberrypi5.local "mkdir -p ~/polytrack-ai/tracks"  # ensure folder exists (once)
+scp polytrack-ai/tracks/X.json rp5user@raspberrypi5.local:~/polytrack-ai/tracks/   # send a track
 scp rp5user@raspberrypi5.local:~/polytrack-ai/data/es_lap.X.json polytrack-ai/data/            # pull a result
 # watch:  http://raspberrypi5.local:7780
 ```
@@ -258,7 +259,7 @@ scp rp5user@raspberrypi5.local:~/polytrack-ai/data/es_lap.X.json polytrack-ai/da
 | `createCar: false` in the dump | Restart the track in-game (press **R**), then `__polyDump` again. |
 | Game isn't version 0.6.2 | Tell me — I'll re-pull the new game files so the sim still matches. |
 | Pi slow / throttling | Check `vcgencmd measure_temp` (add a fan) and `vcgencmd get_throttled` (`0x0` = OK; else power supply). |
-| `scp` made `track data/track data/…` | You quoted the remote path wrong — it must end at the **folder**: `…:~/polytrack-ai/track data/`. |
+| `scp: dest open … Failure` | The `tracks/` folder doesn't exist on the Pi yet — create it first: `ssh rp5user@host "mkdir -p ~/polytrack-ai/tracks"`, then retry. |
 
 ---
 
