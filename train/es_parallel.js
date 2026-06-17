@@ -46,7 +46,7 @@ const ask = (w, msg) => new Promise((res) => { w._pending = res; w.postMessage(m
   }
   if (theta.every((x) => x === 0)) for (let i = 0; i < theta.length; i++) theta[i] = (Math.random() * 2 - 1) * 0.1;
 
-  let bestReward = -Infinity, bestTheta = theta.slice();
+  let bestReward = -Infinity, bestTheta = theta.slice(), lastLapReward = -Infinity;
   const half = POP >> 1;
   const t0 = Date.now();
 
@@ -91,9 +91,18 @@ const ask = (w, msg) => new Promise((res) => { w._pending = res; w.postMessage(m
     console.log(`gen ${String(g).padStart(3)} bestCp=${bestCp} bestReward=${bestReward.toFixed(0)} ${bestFinish !== null ? `FINISH=${(bestFinish / 1000).toFixed(3)}s` : ''} (${secs}s, ${(g / ((Date.now() - t0) / 1000)).toFixed(2)} gen/s)`);
     fs.writeFileSync(path.join(DATA, 'policy.json'), JSON.stringify({ nIn, nH, nOut, weights: Array.from(bestTheta), bestReward }));
 
-    if (bestFinish !== null) {
+    // Whenever the all-time best improves, record that policy's lap (the input
+    // sequence) and save it — so es_lap.json always holds the current best lap,
+    // finishing or not.
+    if (bestReward > lastLapReward) {
+      lastLapReward = bestReward;
       const rec = await ask(workers[0], { type: 'record', weights: Array.from(bestTheta), maxf: MAXF });
-      if (rec.finish !== null) { fs.writeFileSync(path.join(DATA, 'es_lap.json'), JSON.stringify({ finishFrames: rec.finish, actions: rec.actions })); console.log(`  saved finishing lap (${(rec.finish / 1000).toFixed(3)}s) -> data/es_lap.json`); }
+      fs.writeFileSync(path.join(DATA, 'es_lap.json'), JSON.stringify({
+        generation: g, bestReward, maxCheckpoint: rec.maxCp,
+        finishFrames: rec.finish, finishSeconds: rec.finish !== null ? rec.finish / 1000 : null,
+        frames: rec.actions.length, actions: rec.actions,
+      }));
+      if (rec.finish !== null) console.log(`  *** FINISH ${(rec.finish / 1000).toFixed(3)}s -> data/es_lap.json`);
     }
   }
   console.log('done. best reward', bestReward.toFixed(0));
