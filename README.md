@@ -12,6 +12,15 @@ You can't train a record-beating racing AI inside a live browser. RL/ES for
 time-trial racing needs **hundreds of millions of physics steps**; a browser runs
 at 60 fps. Every project that has actually beaten human racing records (e.g.
 *Linesight* for TrackMania) does the same three things, and so do we:
+=======
+## The sad thing:
+
+Damn it. I cannot train a record-beating racing AI inside a live browser. RL for time-trial
+racing needs hundreds of millions to billions of physics steps; a browser runs at
+60 fps. Every project that has actually beaten human racing world records (e.g.
+[Linesight](https://github.com/pb4git/linesight-public) for TrackMania) does the
+same three things, and so do we:
+>>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
 
 1. **Run the game's real physics headless, far faster than real time.**
 2. **Train in that fast sim.**
@@ -24,7 +33,32 @@ can drive independently of rendering.
 
 ---
 
+<<<<<<< HEAD
 ## How it works (the pipeline)
+=======
+The **live** game (https://www.kodub.com/apps/polytrack) is **0.6.2**, served from
+`https://app-polytrack.kodub.com/0.6.2/`. That is our target — its physics is what
+produces the current world records. We keep an older `0.5.0` build too (it used
+Ammo/Bullet; useful as a cross-check), but **0.6.2 is primary**.
+
+> Physics engine changed between versions: 0.5.0 used **Ammo.js (Bullet)**; 0.6.2
+> uses a **custom Emscripten C engine** `lib/polytrack_physics.js` with a clean C
+> API (`_createCarModel`, `_updateCarModel`, `_addTrackPartConfiguration`,
+> `_testDeterminism`, ...). Both are deterministic, fixed **1 ms/frame (1000 fps)**.
+
+## What is already proven
+
+- **0.6.2 (live):** the custom `polytrack_physics` engine loads headless in Node
+  (`npm run probe:physics062`) and the **full worker bundle** (Three.js + engine +
+  embedded wasm) boots in a clean `vm` sandbox and **passes the determinism
+  self-test**: `npm run test:determinism:062` → `isDeterminstic = true`.
+- **0.5.0 (archive):** same approach over Ammo/Bullet; `npm run test:determinism`
+  → `true`.
+- This is the critical proof that inputs found in our headless sim transfer
+  **bit-exact** to the browser — the thing that defeats every screen-capture bot.
+
+## Arch
+>>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
@@ -52,7 +86,11 @@ can drive independently of rendering.
         ▼  (next) browser bridge: replay inputs in the real game, submit time
 ```
 
+<<<<<<< HEAD
 ### 1. Headless simulation — `sim/`
+=======
+### WMP  (worker msg prot)
+>>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
 
 The live game is **0.6.2** (served from `app-polytrack.kodub.com/0.6.2/`). Its
 physics is **Bullet, compiled to a custom Emscripten engine** (`polytrack_physics.wasm`),
