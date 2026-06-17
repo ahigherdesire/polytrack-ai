@@ -2,9 +2,9 @@
 
 Goal: an AI that **learns** to drive [PolyTrack](https://app.polytrack.com) and pushes toward **world-record** times.
 
-## The honest reality (read this first)
+## The sad thing:
 
-You cannot train a record-beating racing AI inside a live browser. RL for time-trial
+Damn it. I cannot train a record-beating racing AI inside a live browser. RL for time-trial
 racing needs hundreds of millions to billions of physics steps; a browser runs at
 60 fps. Every project that has actually beaten human racing world records (e.g.
 [Linesight](https://github.com/pb4git/linesight-public) for TrackMania) does the
@@ -32,7 +32,7 @@ Ammo/Bullet; useful as a cross-check), but **0.6.2 is primary**.
 > API (`_createCarModel`, `_updateCarModel`, `_addTrackPartConfiguration`,
 > `_testDeterminism`, ...). Both are deterministic, fixed **1 ms/frame (1000 fps)**.
 
-## What is already proven (✓)
+## What is already proven
 
 - **0.6.2 (live):** the custom `polytrack_physics` engine loads headless in Node
   (`npm run probe:physics062`) and the **full worker bundle** (Three.js + engine +
@@ -43,7 +43,7 @@ Ammo/Bullet; useful as a cross-check), but **0.6.2 is primary**.
 - This is the critical proof that inputs found in our headless sim transfer
   **bit-exact** to the browser — the thing that defeats every screen-capture bot.
 
-## Architecture
+## Arch
 
 ```
 RL trainer  --input seq-->  Headless sim (Node)         Browser bridge
@@ -51,7 +51,7 @@ RL trainer  --input seq-->  Headless sim (Node)         Browser bridge
  N parallel envs            1000s x real-time            vps.kodub.com leaderboard
 ```
 
-### Worker message protocol (reverse-engineered)
+### WMP  (worker msg prot)
 
 `postMessage({ messageType, ... })`, enum:
 
