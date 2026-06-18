@@ -166,6 +166,40 @@ polytrack-dashboard` (and stop the manual one with `kill %1` or close the tmux p
 
 ---
 
+## 6.5 Guide-assisted training (browser tools on the Pi)
+
+When pure training gets **stuck** on a hard section (a tight or elevated corner the
+policy can't figure out), you can hand it a racing line. Two browser tools help:
+
+**Control panel** — pick a track, start/stop training, reset a track's progress, and
+download the latest replay, all from a browser:
+```bash
+node train/control_panel.js 7790      # then open http://raspberrypi5.local:7790
+```
+
+**Map / guide editor** — renders the real **3D track mesh** and lets you click to
+place **guide waypoints** (your racing line). Use *Snap Y* / *Snap all Y* to drop the
+points onto the track surface, then save:
+```bash
+node train/map_loader.js 7792         # then open http://raspberrypi5.local:7792
+```
+Saving writes `data/guide.<track>.json` (a list of `points` + a `radius`).
+
+**How it helps:** if `data/guide.<track>.json` exists, the trainer automatically
+rewards the car for following your waypoints (`perGuidePoint` / `guideDistanceWeight`
+in the REWARD block) and penalizes leaving the driveable mesh (`offTrackPenalty`).
+So the workflow for a stuck track is: **draw the line in the map editor → train**.
+
+**Reading the result:** `data/es_lap.<track>.json` has a `kind` field —
+`fastestFinish` (a real finishing lap; has `finishSeconds`) or `bestRewardFallback`
+(best non-finishing attempt). Check it:
+```bash
+node -e "const x=require('./data/es_lap.haoyuone.json'); console.log(x.kind, x.finishSeconds, x.frames, x.actions?.length)"
+```
+(See `HAOYUONE_RESET_AND_JSON_GUIDE.md` for the full check / back-up / reset routine.)
+
+---
+
 ## 7. Change the reward (on the Pi)
 
 All the reward "knobs" are one labeled block at the top of **`train/evaluator.js`**.
@@ -177,12 +211,15 @@ nano train/evaluator.js     # edit the REWARD block near the top, Ctrl-O, Enter,
 ```
 ```js
 const REWARD = {
-  perCheckpoint: 3000,    // reward per checkpoint passed
-  distanceWeight: 1,      // pull toward the next checkpoint
-  finishBonus: 2e6,       // reward for completing the lap
-  finishTimeWeight: 1,    // ↑ this to reward FASTER laps (record times)
-  stuckFrames: 700,       // give up on a dead run after this long
-  stuckSpeed: 8,
+  perCheckpoint: 3000,      // reward per checkpoint passed
+  distanceWeight: 2,        // pull toward the next checkpoint
+  perGuidePoint: 450,       // reward per guide waypoint reached (if a guide exists)
+  guideDistanceWeight: 1.5, // pull toward the active guide point
+  finishBonus: 5e6,         // reward for completing the lap
+  finishTimeWeight: 50,     // ↑ this to reward FASTER laps (record times)
+  stuckFrames: 700,         // give up on a dead run after this long
+  stuckSpeed: 8,            // "stopped" threshold (km/h)
+  offTrackPenalty: 20000,   // penalty for leaving the driveable track mesh
 };
 ```
 Apply it:
@@ -234,6 +271,8 @@ TRACK=tracks/X.json node train/es_parallel.js 1000000 24 16000 3 > train-X.log 2
 TRACK=tracks/X.json node train/dashboard.js train-X.log 7780
 node sim/test_determinism062.js                  # physics self-test (-> true)
 vcgencmd measure_temp                            # Pi temperature
+node train/control_panel.js 7790                 # browser control panel (:7790)
+node train/map_loader.js 7792                    # 3D map + guide-waypoint editor (:7792)
 ```
 **On your PC (PowerShell):**
 ```powershell
