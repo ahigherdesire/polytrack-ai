@@ -22,7 +22,7 @@ const GENS = parseInt(process.argv[2] || '500', 10);
 const POP = parseInt(process.argv[3] || '56', 10);            // even
 const MAXF = parseInt(process.argv[4] || '16000', 10);
 const NW = parseInt(process.argv[5] || String(Math.min(os.cpus().length - 1, 13)), 10);
-const SIGMA = 0.12, LR = 0.06;
+const SIGMA = 0.03, LR = 0.015;
 const [nIn, nH, nOut] = POLICY_SHAPE;
 const NWEIGHTS = nIn * nH + nH + nH * nOut + nOut;
 const finiteNumber = (x) => {

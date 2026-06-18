@@ -9,7 +9,8 @@
     "test:determinism": "node sim/test_determinism.js",
     "test:determinism:062": "node sim/test_determinism062.js",
     "run:car": "node sim/run_car.js",
-    "control": "node train/control_panel.js"
+    "control": "node train/control_panel.js",
+    "map": "node train/map_loader.js"
   },
   "license": "MIT"
 }

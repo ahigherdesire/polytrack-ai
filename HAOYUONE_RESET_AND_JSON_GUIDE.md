@@ -85,7 +85,7 @@ Run this on the Raspberry Pi:
 
 ```bash
 cd ~/polytrack-ai
-TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 24 16000 3 > train-haoyuone.log 2>&1 &
+TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 48 16000 4 > train-haoyuone.log 2>&1 &
 ```
 
 Check that it started:
@@ -95,6 +95,52 @@ tail -f train-haoyuone.log
 ```
 
 Press `Ctrl+C` to stop watching the log. This does not stop training.
+
+## 4A. Create Guide Waypoints
+
+Use the map loader when the AI keeps choosing the wrong route after the first
+checkpoint.
+
+Run this on the Raspberry Pi:
+
+```bash
+cd ~/polytrack-ai
+node train/map_loader.js 7792
+```
+
+Open this on your Windows computer:
+
+```text
+http://raspberrypi5.local:7792
+```
+
+Choose `haoyuone`, click points on the map in the order the car should drive,
+then press `Save`. Guide points are saved as `x/y/z`, so ramps and jumps can use
+real height instead of a flat `y=0` route.
+
+Height controls:
+
+```text
+Snap Y      snap the selected point to the nearest track mesh height
+Low         use the lower surface if two surfaces overlap
+High        use the higher surface if two surfaces overlap
+Snap all Y  upgrade old 2D guide points to 3D mesh heights
+```
+
+The guide file is saved as:
+
+```bash
+data/guide.haoyuone.json
+```
+
+Training automatically uses that file when you start with:
+
+```bash
+TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 48 16000 4 > train-haoyuone.log 2>&1 &
+```
+
+If you change guide points, reset/restart training so the new route is learned
+from the beginning.
 
 ## 5. Start The Dashboard
 

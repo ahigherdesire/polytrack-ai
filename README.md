@@ -25,6 +25,23 @@ Open it from Windows:
 http://raspberrypi5.local:7790
 ```
 
+Start the guide map loader on the Pi:
+
+```bash
+cd ~/polytrack-ai
+node train/map_loader.js 7792
+```
+
+Open it from Windows:
+
+```text
+http://raspberrypi5.local:7792
+```
+
+Guide points are 3D now. Click to place `x/y/z` points, use `Snap Y`,
+`Low`, `High`, or `Snap all Y` to put points on the track mesh height, then
+save `data/guide.haoyuone.json`.
+
 The finished keyboard replay is:
 
 ```bash

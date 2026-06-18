@@ -10,10 +10,10 @@ const { setupTrack, makeEvaluate } = require('./evaluator');
   const sim = await new Headless062().init();
   await sim.waitReady();
   sim.loadCar(payload.init, payload.createCar);
-  const { cps, start, occ } = setupTrack(sim);
-  const evaluate = makeEvaluate(sim, cps, start, occ);
+  const { cps, start, occ, guide } = setupTrack(sim, { track: workerData.constants });
+  const evaluate = makeEvaluate(sim, cps, start, occ, guide);
 
-  parentPort.postMessage({ type: 'ready', cps: cps.length });
+  parentPort.postMessage({ type: 'ready', cps: cps.length, guidePoints: guide ? guide.points.length : 0 });
 
   parentPort.on('message', (msg) => {
     if (msg.type === 'eval') {

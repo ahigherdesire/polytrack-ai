@@ -155,6 +155,7 @@ class Headless062 {
       detector: p.detector,      // {type,center[3],size[3]} or null — read by index
       startOffset: p.startOffset, // [3] or null
     }));
+    this._trackPartConfigs = trackParts;
     this.send({
       messageType: MSG.Init,
       version: '0.6.2',

@@ -23,6 +23,7 @@ const PORT = parseInt(process.argv[3] || '7780', 10);
 const LINE = /^gen\s+(\d+)\s+(.+?)\s+\((\d+)s,\s+([\d.]+)\s+gen\/s\)/gm;
 const TRAIN_LINE = /spawning\s+(\d+)\s+workers,\s+pop\s+(\d+),\s+maxFrames\s+(\d+)/;
 const num = (v, fallback = null) => (v === undefined ? fallback : Number(String(v).replace(/s$/, '')));
+const NEUTRAL_ACTION = { up: false, down: false, left: false, right: false, reset: false };
 const finite = (v) => {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
@@ -89,18 +90,29 @@ function readSystemStats() {
   const sim = await new Headless062().init();
   await sim.waitReady();
   sim.loadCar(payload.init, payload.createCar);
-  const { cps, start, occ } = setupTrack(sim);
+  const { cps, start, occ, guide } = setupTrack(sim, { track: TRACK });
 
   // Static track map: unique downsampled tile points + checkpoints + bounds.
   const seen = new Set(); const tiles = [];
   for (const p of sim._parts) { const x = p[0] * 5, z = p[2] * 5; const k = `${x},${z}`; if (!seen.has(k)) { seen.add(k); tiles.push([x, z]); } }
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const [x, z] of tiles) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
-  const trackMap = { tiles, checkpoints: cps.map((c, i) => ({ x: c.x, z: c.z, order: i })), start: { x: start.x, z: start.z }, bounds: { minX, maxX, minZ, maxZ } };
+  const guidePoints = guide && Array.isArray(guide.points) ? guide.points : [];
+  for (const p of guidePoints) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+  const trackMap = { tiles, checkpoints: cps.map((c, i) => ({ x: c.x, z: c.z, order: i })), start: { x: start.x, z: start.z }, guide: guide ? { radius: guide.radius, points: guidePoints.map((p, i) => ({ x: p.x, z: p.z, order: i + 1 })) } : null, bounds: { minX, maxX, minZ, maxZ } };
 
   // Replay policy files -> paths (throttled).
   const policy = new Policy(observe.SIZE, 16, 4);
   const tgt = (i) => (i < cps.length ? cps[i] : start);
+  const guideRadius = guide ? guide.radius : 0;
+  function guideTarget(s, guideIdx) {
+    if (guideIdx < guidePoints.length) return guidePoints[guideIdx];
+    return tgt(s.nextCheckpointIndex);
+  }
+  function guideNextTarget(s, guideIdx) {
+    if (guideIdx + 1 < guidePoints.length) return guidePoints[guideIdx + 1];
+    return tgt(s.nextCheckpointIndex);
+  }
   const lapCaches = new Map();
   function replayPolicy(file, label) {
     const cached = lapCaches.get(file);
@@ -116,13 +128,18 @@ function readSystemStats() {
     policy.setWeights(weights);
     sim.reset();
     const pathPts = []; let last = null, maxCp = 0, finish = null, stuck = 0, prev = Infinity;
+    let guideIdx = 0;
     for (let f = 0; f < 16000; f++) {
       const s0 = last || sim.step({ up: false });
       const idx = s0.nextCheckpointIndex;
-      const s = sim.step(policy.act(observe(s0, [tgt(idx), tgt(idx + 1)], occ)));
+      while (guideIdx < guidePoints.length && Math.hypot(s0.position.x - guidePoints[guideIdx].x, s0.position.z - guidePoints[guideIdx].z) <= guideRadius) guideIdx++;
+      const targetA = guidePoints.length ? guideTarget(s0, guideIdx) : tgt(idx);
+      const targetB = guidePoints.length ? guideNextTarget(s0, guideIdx) : tgt(idx + 1);
+      const s = sim.step(policy.act(observe(s0, [targetA, targetB], occ)));
       if (!s) break; last = s;
       if (f % 12 === 0) pathPts.push([+s.position.x.toFixed(1), +s.position.z.toFixed(1), +s.speedKmh.toFixed(0)]);
       if (s.nextCheckpointIndex > maxCp) { maxCp = s.nextCheckpointIndex; stuck = 0; }
+      while (guideIdx < guidePoints.length && Math.hypot(s.position.x - guidePoints[guideIdx].x, s.position.z - guidePoints[guideIdx].z) <= guideRadius) guideIdx++;
       const pr = Math.hypot(s.position.x - tgt(s.nextCheckpointIndex).x, s.position.z - tgt(s.nextCheckpointIndex).z);
       if (pr < prev - 0.5) { prev = pr; stuck = 0; } else stuck++;
       if (s.finishFrames !== null) { finish = s.finishFrames; break; }
@@ -148,7 +165,9 @@ function readSystemStats() {
     if (!saved || !Array.isArray(saved.actions) || !saved.actions.length) return replayPolicy(fallbackPolicyFile, 'best');
 
     sim.reset();
-    let last = sim.step({ up: false });
+    const finishFrames = finite(saved.finishFrames);
+    const needsInitialNeutral = finishFrames !== null && finishFrames === saved.actions.length + 1;
+    let last = needsInitialNeutral ? sim.step(NEUTRAL_ACTION) : null;
     const pathPts = []; let maxCp = 0, finish = null;
     for (let f = 0; f < saved.actions.length; f++) {
       const s = sim.step(saved.actions[f]);
@@ -259,13 +278,13 @@ function drawMap(id,lap,c0,c1){const cv=$(id),x=cv.getContext('2d'),W=cv.width,H
    const e=lap.path[lap.path.length-1],[ex,ey]=T(e);x.fillStyle='#f85149';x.beginPath();x.arc(ex,ey,4,0,7);x.fill();}
  // checkpoints + start
  track.checkpoints.forEach(c=>{const[px,py]=Tc(c);x.fillStyle='#d29922';x.beginPath();x.arc(px,py,5,0,7);x.fill();x.fillStyle='#0d1117';x.font='9px monospace';x.fillText(c.order,px-2,py+3);});
+ if(track.guide&&track.guide.points&&track.guide.points.length){x.strokeStyle='#39d5d5';x.lineWidth=1.5;x.setLineDash([5,4]);x.beginPath();track.guide.points.forEach((p,i)=>{const[px,py]=Tc(p);i?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();x.setLineDash([]);track.guide.points.forEach(p=>{const[px,py]=Tc(p);x.fillStyle='#39d5d5';x.beginPath();x.arc(px,py,4,0,7);x.fill();x.fillStyle='#071018';x.font='8px monospace';x.fillText(p.order,px-2,py+3);});}
  const[stx,sty]=Tc(track.start);x.fillStyle='#3fb950';x.beginPath();x.arc(stx,sty,5,0,7);x.fill();}
 function lapText(lap){if(!lap||lap.missing)return 'waiting for policy';const bits=['cp '+lap.maxCp];if(lap.source)bits.push(lap.source);if(lap.kind)bits.push(lap.kind);if(Number.isFinite(lap.generation))bits.push('gen '+lap.generation);if(Number.isFinite(lap.reward))bits.push('reward '+lap.reward.toFixed(0));if(lap.finish)bits.push((lap.finish/1000).toFixed(3)+'s');if(lap.end)bits.push('ends ('+lap.end.x+','+lap.end.z+')');return bits.join(' | ');}
-function renderSettings(m){const r=m.reward||{},t=m.train||{};$('settings').textContent=[
+function renderSettings(m){const r=m.reward||{},t=m.train||{};const rewardBits=Object.keys(r).map(k=>k+'='+r[k]);$('settings').textContent=[
  'track='+m.track,'log='+m.log,'bestPolicy='+m.policy,'currentPolicy='+m.currentPolicy,'bestLap='+m.bestLap,
  t.pop?('pop='+t.pop):null,t.workers?('workers='+t.workers):null,t.maxFrames?('maxFrames='+t.maxFrames):null,
- 'perCheckpoint='+r.perCheckpoint,'distanceWeight='+r.distanceWeight,'finishBonus='+r.finishBonus,
- 'finishTimeWeight='+r.finishTimeWeight,'stuckFrames='+r.stuckFrames,'stuckSpeed='+r.stuckSpeed
+ ...rewardBits
 ].filter(Boolean).join('  |  ');}
 async function tick(){try{
  const m=await j('/api/metrics');const h=m.history;if(!track)track=await j('/api/track');
