@@ -4,6 +4,46 @@ An AI that **learns to drive** [PolyTrack](https://www.kodub.com/apps/polytrack)
 game's own physics headless and training a neural-network policy with Evolution
 Strategies — aiming at world-record lap times.
 
+## Haoyuone Quick Notes
+
+For the `tracks/haoyuone.json` Raspberry Pi workflow, see:
+
+```text
+HAOYUONE_RESET_AND_JSON_GUIDE.md
+```
+
+Start the click control UI on the Pi:
+
+```bash
+cd ~/polytrack-ai
+node train/control_panel.js 7790
+```
+
+Open it from Windows:
+
+```text
+http://raspberrypi5.local:7790
+```
+
+The finished keyboard replay is:
+
+```bash
+~/polytrack-ai/data/es_lap.haoyuone.json
+```
+
+Check that it actually finished before copying it:
+
+```bash
+cd ~/polytrack-ai
+node -e "const x=require('./data/es_lap.haoyuone.json'); console.log(x.kind, x.finishSeconds, x.finishFrames, x.actions?.length)"
+```
+
+Copy it from Windows Command Prompt:
+
+```bat
+scp rp5user@raspberrypi5.local:~/polytrack-ai/data/es_lap.haoyuone.json "%USERPROFILE%\Downloads\es_lap.haoyuone.json"
+```
+
 <<<<<<< HEAD
 ---
 

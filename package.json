@@ -8,7 +8,8 @@
     "probe:physics062": "node sim/physics062_probe.js",
     "test:determinism": "node sim/test_determinism.js",
     "test:determinism:062": "node sim/test_determinism062.js",
-    "run:car": "node sim/run_car.js"
+    "run:car": "node sim/run_car.js",
+    "control": "node train/control_panel.js"
   },
   "license": "MIT"
 }

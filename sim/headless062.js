@@ -183,7 +183,9 @@ class Headless062 {
     return this;
   }
 
-  // Checkpoints incl. finish, sorted by order: {order, type, grid:{x,y,z}, rotation}.
+  // Ordered intermediate checkpoints: {order, type, grid:{x,y,z}, rotation}.
+  // Finish parts are separate detectors with no checkpointOrder; evaluator.js
+  // appends them as the final navigation target.
   checkpoints() {
     const seen = new Map();
     for (const p of this._parts || []) {

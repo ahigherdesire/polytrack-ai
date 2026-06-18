@@ -15,7 +15,7 @@ const REWARD = {
                          //   checkpoint. Higher = stronger pull toward the goal.
   finishBonus: 2e6,      // one-time reward for completing the lap (must dwarf the
                          //   checkpoint terms so finishing always wins).
-  finishTimeWeight: 1,   // subtract this * finishFrames. Raise it to reward a
+  finishTimeWeight: 5,   // subtract this * finishFrames. Raise it to reward a
                          //   FASTER lap more aggressively (key for record times).
   stuckFrames: 700,      // end the run after this many frames of no progress while
                          //   nearly stopped (saves time on dead policies).
@@ -24,9 +24,16 @@ const REWARD = {
 // ============================================================================
 
 const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+const FINISH_TYPES = new Set([6, 74, 76, 78]);
 
 function setupTrack(sim) {
   const cps = sim.checkpoints().map((c) => gridToWorld(c.grid));
+  // Finish pieces are detectors, but PolyTrack does not assign them a
+  // checkpointOrder. Without this final target, the policy aims back at the
+  // start after the last checkpoint instead of driving to the finish line.
+  for (const p of sim._parts || []) {
+    if (FINISH_TYPES.has(p[3])) cps.push(gridToWorld({ x: p[0], y: p[1], z: p[2] }));
+  }
   const start = sim.rollout([{ up: false }]).last.position;
   const occ = buildOccupancy(sim._parts);
   return { cps, start, occ };
@@ -71,4 +78,4 @@ function gaussian() {
   const m = Math.sqrt(-2 * Math.log(u)); _spare = m * Math.sin(2 * Math.PI * v); return m * Math.cos(2 * Math.PI * v);
 }
 
-module.exports = { setupTrack, makeEvaluate, gaussian, POLICY_SHAPE: [observe.SIZE, 16, 4] };
+module.exports = { setupTrack, makeEvaluate, gaussian, REWARD, POLICY_SHAPE: [observe.SIZE, 16, 4] };
