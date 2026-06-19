@@ -19,7 +19,28 @@ frame-exact inputs and is exactly what the leaderboard accepts.
   keyboard lap-player / copier.)
 - **`submit-recording.js`** — browser console hook to put the lap on the leaderboard
   (swaps the AI recording into the game's submit). Optional.
+- **`grab-recording.js`** — browser console hook to **copy another player's lap from
+  the game** (grabs the recording the game fetches when you watch a leaderboard
+  replay). No pixel reading.
+- **`decode-recording.js`** — turns a recording string back into per-frame inputs
+  (`{up,down,left,right,reset}`). Inverse of `make-recording.js`; verified bit-exact.
 - **`capture_payloads.js`** — (track capture; see instructions.md).
+
+## Workflow — copy a player's lap (e.g. a world record), exactly
+
+This replaces pixel reading: the game already stores everyone's inputs as
+recordings, so grab the real data instead of reading the screen.
+
+1. Open the game, paste **`grab-recording.js`** into the console.
+2. Open the track's leaderboard and **watch** the lap(s) you want. Each is captured.
+3. `__polyDumpGrabbed("recordings")` → downloads `recordings.json` (recording
+   strings + frames + names).
+4. On your PC, decode to inputs:
+   ```bash
+   node bridge/decode-recording.js "<recording string>" <frames> out.json
+   ```
+   → `out.json` is the exact per-frame inputs that player used. (Verified: encode →
+   decode round-trips bit-for-bit.)
 
 ## Workflow — watch a lap play out accurately
 
