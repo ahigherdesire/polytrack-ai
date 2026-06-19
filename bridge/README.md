@@ -13,26 +13,29 @@ frame-exact inputs and is exactly what the leaderboard accepts.
 - **`verify-recording.js`** — builds the recording and runs it through the game's
   **own `Verify`** (the same check the leaderboard server runs) to prove it
   reproduces the exact finish frame. Writes `<lap>.recording.txt`.
-- **`submit-recording.js`** — browser console hook that swaps the AI recording into
-  the game's leaderboard submit, so it posts under your account with the right
-  token/trackId.
+- **`play-recording.js`** — browser console hook to **watch the lap play out on the
+  real track, frame-perfectly**. It turns your player car into a recording-driven
+  car, so the game itself drives + renders the exact lap. (This replaces the
+  keyboard lap-player / copier.)
+- **`submit-recording.js`** — browser console hook to put the lap on the leaderboard
+  (swaps the AI recording into the game's submit). Optional.
 - **`capture_payloads.js`** — (track capture; see instructions.md).
 
-## Workflow
+## Workflow — watch a lap play out accurately
 
 ```bash
-# 1. validate + emit the recording (proves it's a frame-exact lap)
+# 1. build + validate the recording (game's own Verify proves it's frame-exact)
 node bridge/verify-recording.js data/es_lap.haoyuone.json tracks/haoyuone.json
 #    -> ✓ VALID recording ... -> data/es_lap.haoyuone.recording.txt
-
-# 2. (just the string, e.g. to paste somewhere)
-node bridge/make-recording.js data/es_lap.haoyuone.json
 ```
+2. Open the game (`https://app-polytrack.kodub.com/0.6.2/`), paste the recording
+   string into `AI_RECORDING` in **`play-recording.js`**, and paste that whole
+   script into the DevTools console (before entering the track).
+3. Enter the track and press an arrow key once to start — the car drives the AI lap
+   by itself, perfectly. `__polyPlayOff()` to stop and drive normally.
 
-To put it on the leaderboard: open the game, paste `submit-recording.js` into the
-console (with `AI_RECORDING` + `AI_FRAMES` filled in from step 1), then drive any
-finishing lap on that track — the AI lap is submitted instead, and you can "watch"
-it back frame-perfect from the leaderboard.
-
-> Verified working: a 9.795 s `haoyuone` lap serializes to a 254-char recording that
-> the game's `Verify` accepts as a frame-exact finish.
+> Why this beats keyboard replay: the recording is applied **by frame number inside
+> the game**, not by OS keystrokes, so there's zero timing drift.
+>
+> Verified: a 9.795 s `haoyuone` lap → a 254-char recording the game's `Verify`
+> accepts as a frame-exact finish.

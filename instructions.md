@@ -270,10 +270,11 @@ node bridge/verify-recording.js data/es_lap.haoyuone.json tracks/haoyuone.json
 #   -> ✓ VALID recording ... -> data/es_lap.haoyuone.recording.txt
 ```
 
-To put it on the leaderboard (and then watch it back perfectly): paste
-`bridge/submit-recording.js` into the game's console (with the recording string +
-`finishFrames` from above), then drive any finishing lap on that track — the AI lap
-is submitted instead. See `bridge/README.md` for the full workflow.
+To **watch it play out on the track**: paste `bridge/play-recording.js` into the
+game's console (with the recording string from above), enter the track, and press an
+arrow key once — the game drives the AI lap itself, frame-perfectly. (Optional:
+`bridge/submit-recording.js` puts it on the leaderboard instead.) See
+`bridge/README.md` for the full workflow.
 
 ---
 
