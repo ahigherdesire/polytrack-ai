@@ -255,8 +255,25 @@ scp rp5user@raspberrypi5.local:~/polytrack-ai/data/policy.haoyuone.json data/
 ```
 (For Summer 1 the files are just `es_lap.json` / `policy.json`.)
 
-Submitting a finished lap to the leaderboard happens from a **browser on your PC**
-(the game's API) — that bridge is the next thing to build.
+---
+
+## 8.5 Replay / submit an AI lap accurately (recording bridge)
+
+Pressing OS keys to replay a lap **drifts** (a 1000 fps input sequence can't be
+reproduced by keyboard). The accurate path is the game's native **recording**
+format — it plays at full internal 1000 fps with frame-exact inputs and is what the
+leaderboard accepts.
+
+```bash
+# build the recording and prove it reproduces the exact finish (game's own check):
+node bridge/verify-recording.js data/es_lap.haoyuone.json tracks/haoyuone.json
+#   -> ✓ VALID recording ... -> data/es_lap.haoyuone.recording.txt
+```
+
+To put it on the leaderboard (and then watch it back perfectly): paste
+`bridge/submit-recording.js` into the game's console (with the recording string +
+`finishFrames` from above), then drive any finishing lap on that track — the AI lap
+is submitted instead. See `bridge/README.md` for the full workflow.
 
 ---
 
