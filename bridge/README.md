@@ -26,7 +26,27 @@ frame-exact inputs and is exactly what the leaderboard accepts.
   (`{up,down,left,right,reset}`). Inverse of `make-recording.js`; verified bit-exact.
 - **`capture_payloads.js`** — (track capture; see instructions.md).
 
-## Workflow — copy a player's lap (e.g. a world record), exactly
+- **`fetch-recording.js`** — **fully automated** grab+decode straight from the game's
+  public API (no browser): trackId → leaderboard → recording → inputs.
+
+## Workflow — fetch a world record automatically (no browser)
+
+The game's API (`vps.kodub.com/v6`) is reachable directly with the browser
+`Origin`/`Referer` headers, so for any track whose **trackId** you know you can grab
++ decode a lap in one command:
+
+```bash
+# rank 1 = world record. (Summer 1 trackId shown.)
+node bridge/fetch-recording.js 5803f9e963625804e3de3246d043dc7dde847aa32e991f7f7326b0453f1fa038 1 data/grabbed/summer1_wr.json
+#   -> youngfella  22.262s (rank 1/3123573) ; out.json has the exact per-frame inputs
+```
+Verified: the fetched WR recording reproduces its exact finish frame in our headless
+sim (`sim/headless062` Verify), so you can also re-run / analyze any record locally.
+
+To get a **community track's** trackId, use the browser grab below (or read it from
+the leaderboard request in the Network tab).
+
+## Workflow — copy a player's lap with the browser (any track)
 
 This replaces pixel reading: the game already stores everyone's inputs as
 recordings, so grab the real data instead of reading the screen.
