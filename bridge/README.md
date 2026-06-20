@@ -28,6 +28,26 @@ frame-exact inputs and is exactly what the leaderboard accepts.
 
 - **`fetch-recording.js`** — **fully automated** grab+decode straight from the game's
   public API (no browser): trackId → leaderboard → recording → inputs.
+- **`optimize-lap.js`** — TAS hill-climber: start from a lap's inputs and search for a
+  FASTER finish, keeping only changes that still finish, in fewer frames, verified in
+  the headless sim. Outputs a ready `.recording`.
+
+## Workflow — tweak a lap to go faster (TAS)
+
+```bash
+# improve a lap; each iteration is a full frame-exact sim (~1s)
+node bridge/optimize-lap.js <seed-lap.json> <track.json> [iters] [out.json]
+# e.g. keep improving Hollow Dunes from the current best:
+node bridge/optimize-lap.js data/grabbed/hollowdunes_best.json tracks/hollowdunes.json 4000 data/grabbed/hollowdunes_best.json
+# get the recording string to play/submit:
+node -e "console.log(require('./data/grabbed/hollowdunes_best.json').recording)"
+```
+- seed-lap.json = any lap json with `.actions` (a fetched WR, or a prior optimized
+  output — seed from the output to continue improving).
+- track.json = the captured track (e.g. `tracks/hollowdunes.json`, built from a browser
+  capture via `train/make-track.js`).
+- Only verified-faster, still-finishing laps are kept, so the output is always real.
+  Proven: shaved a real Hollow Dunes WR from 33.843s to 33.7xx in the sim.
 
 ## Workflow — fetch a world record automatically (no browser)
 
