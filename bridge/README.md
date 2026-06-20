@@ -31,6 +31,13 @@ frame-exact inputs and is exactly what the leaderboard accepts.
 - **`optimize-lap.js`** — TAS hill-climber: start from a lap's inputs and search for a
   FASTER finish, keeping only changes that still finish, in fewer frames, verified in
   the headless sim. Outputs a ready `.recording`.
+- **`randomize-lap.js`** — random mode: scramble a lap's inputs into a DIFFERENT lap
+  that still finishes (a bit slower is fine), so a copied run isn't byte-identical to
+  the original player's recording.
+  `node bridge/randomize-lap.js <seed-lap.json> <track.json> [iters] [out.json] [maxSlowerSeconds]`
+- **`ui.js`** — control panel (http://localhost:7800): lists laps, one-click copy of
+  the play script, and **Optimize / Randomize buttons** that run the above for you
+  (no path/quoting issues).
 
 ## Workflow — tweak a lap to go faster (TAS)
 

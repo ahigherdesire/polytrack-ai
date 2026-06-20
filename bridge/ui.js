@@ -56,22 +56,27 @@ function lapDetail(file) {
   return { file, driver: j.nickname || null, kind: j.kind || 'lap', frames, seconds: +(frames / 1000).toFixed(3), toggles: j.actions ? toggleCounts(j.actions) : null, recording: rec };
 }
 
-// ---- one optimize job at a time ----
+// ---- one job at a time (optimize OR randomize) ----
 let job = null;
-function startOptimize(lapFile, track, iters) {
-  if (job && !job.done) return { error: 'An optimization is already running. Stop it first.' };
+function startJob(lapFile, track, iters, mode) {
+  if (job && !job.done) return { error: 'A job is already running. Stop it first.' };
   const lapPath = findLap(lapFile); if (!lapPath) return { error: 'lap not found' };
   const trackPath = path.join(TRACKS, track.endsWith('.json') ? track : track + '.json');
   if (!fs.existsSync(trackPath)) return { error: 'track not found: ' + track };
-  const out = path.join(GRABBED, baseName(lapFile) + '_best.json');
+  const random = mode === 'random';
+  const out = path.join(GRABBED, baseName(lapFile) + (random ? '_random.json' : '_best.json'));
+  const script = path.join(__dirname, random ? 'randomize-lap.js' : 'optimize-lap.js');
+  const args = random ? [script, lapPath, trackPath, String(iters), out, '2'] : [script, lapPath, trackPath, String(iters), out];
   fs.mkdirSync(GRABBED, { recursive: true });
-  const proc = spawn(process.execPath, [path.join(__dirname, 'optimize-lap.js'), lapPath, trackPath, String(iters), out], { cwd: ROOT });
-  job = { lap: lapFile, track, out: path.basename(out), iters, startedAt: Date.now(), log: [], best: null, seed: null, done: false, proc };
+  const proc = spawn(process.execPath, args, { cwd: ROOT });
+  job = { lap: lapFile, track, mode: random ? 'randomize' : 'optimize', out: path.basename(out), iters, startedAt: Date.now(), log: [], best: null, seed: null, time: null, diverged: null, done: false, proc };
   const onData = (d) => {
     for (const line of d.toString().split('\n')) {
       if (!line.trim()) continue; job.log.push(line); if (job.log.length > 12) job.log.shift();
-      let m = line.match(/seed finishes at (\d+)/); if (m) { job.seed = +m[1]; job.best = +m[1]; }
+      let m = line.match(/seed (?:finishes at |)(\d+)/); if (m && !job.seed) { job.seed = +m[1]; job.best = +m[1]; }
       m = line.match(/improved -> (\d+)/); if (m) job.best = +m[1];
+      m = line.match(/time=([\d.]+)s/); if (m) job.time = +m[1];
+      m = line.match(/diverged \d+\/?\d* frames \((\d+)%/); if (m) job.diverged = +m[1];
     }
   };
   proc.stdout.on('data', onData); proc.stderr.on('data', onData);
@@ -80,7 +85,7 @@ function startOptimize(lapFile, track, iters) {
 }
 function jobStatus() {
   if (!job) return null;
-  return { lap: job.lap, track: job.track, out: job.out, iters: job.iters, running: !job.done, seed: job.seed, best: job.best, secs: ((Date.now() - job.startedAt) / 1000) | 0, log: job.log.slice(-4) };
+  return { lap: job.lap, track: job.track, mode: job.mode, out: job.out, iters: job.iters, running: !job.done, seed: job.seed, best: job.best, time: job.time, diverged: job.diverged, secs: ((Date.now() - job.startedAt) / 1000) | 0, log: job.log.slice(-4) };
 }
 
 function playScript(rec) {
@@ -110,7 +115,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(HTML); return; }
     if (u.pathname === '/api/laps') return send({ laps: scanLaps(), tracks: listTracks(), job: jobStatus() });
     if (u.pathname === '/api/lap') { const d = lapDetail(u.searchParams.get('file')); return d ? send({ ...d, playScript: d.recording ? playScript(d.recording) : null }) : send({}, 404); }
-    if (u.pathname === '/api/optimize' && req.method === 'POST') { const b = await body(req); const r = startOptimize(b.lap, b.track, Math.max(100, parseInt(b.iters || '8000', 10))); return send(r, r.error ? 400 : 200); }
+    if (u.pathname === '/api/optimize' && req.method === 'POST') { const b = await body(req); const r = startJob(b.lap, b.track, Math.max(100, parseInt(b.iters || '8000', 10)), b.mode); return send(r, r.error ? 400 : 200); }
     if (u.pathname === '/api/stop' && req.method === 'POST') { if (job && job.proc && !job.done) { job.proc.kill(); } return send({ ok: true }); }
     send('not found', 404);
   } catch (e) { send(String(e), 500); }
@@ -145,7 +150,7 @@ textarea{width:100%;height:110px;background:#0a0d12;color:var(--fg);border:1px s
 const $=id=>document.getElementById(id);let TRACKS=[];
 async function j(u,o){return (await fetch(u,o)).json()}
 function copy(t,btn){navigator.clipboard.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='copied!';btn.classList.add('ok');setTimeout(()=>{btn.textContent=o;btn.classList.remove('ok')},1200)})}
-async function optimize(lap){const track=$('tsel').value;const iters=$('iters').value||8000;const r=await j('/api/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lap,track,iters})});if(r.error)alert(r.error);else tick();}
+async function optimize(lap,mode){const track=$('tsel').value;const iters=$('iters').value||(mode==='random'?2000:8000);const r=await j('/api/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lap,track,iters,mode})});if(r.error)alert(r.error);else tick();}
 async function stop(){await j('/api/stop',{method:'POST'});tick();}
 async function showLap(file){const d=await j('/api/lap?file='+encodeURIComponent(file));const p=$('panel');p.classList.add('show');
  const tg=d.toggles?Object.entries(d.toggles).filter(([k])=>k!=='reset').map(([k,v])=>'<span>'+k+': '+v+'</span>').join(''):'';
@@ -155,8 +160,10 @@ async function showLap(file){const d=await j('/api/lap?file='+encodeURIComponent
   +'<div><div class=k>Frames</div><div class=v>'+d.frames+'</div></div>'
   +(d.driver?'<div><div class=k>Driver</div><div class=v>'+d.driver+'</div></div>':'')+'</div>'
   +'<div class=bar>'+tg+'</div>'
-  +'<div class=act><b>⚡ Optimize:</b> track <select id=tsel>'+opts+'</select> iters <input id=iters value=8000 size=6 style=width:70px> '
-  +'<button class=go onclick="optimize(\\''+d.file+'\\')">Run optimize ▸</button> <span class=muted>→ saves to '+d.file.replace(/\\.json$/,'').replace(/(_wr|_best)$/,'')+'_best.json</span></div>'
+  +'<div class=act><b>Run on</b> track <select id=tsel>'+opts+'</select> iters <input id=iters value=4000 size=6 style=width:70px> '
+  +'<button class=go onclick="optimize(\\''+d.file+'\\',\\'optimize\\')">⚡ Optimize (faster)</button> '
+  +'<button class=go onclick="optimize(\\''+d.file+'\\',\\'random\\')">🎲 Randomize (different)</button> '
+  +'<span class=muted>optimize → faster · randomize → different inputs, still finishes</span></div>'
   +'<div class=k style=margin-top:6px>Recording <button onclick="copy(this.dataset.r,this)" data-r="'+(d.recording||'')+'">copy</button></div><textarea readonly>'+(d.recording||'(none)')+'</textarea>'
   +(d.playScript?'<div class=k style=margin-top:10px>▶️ Play script (paste in game console) <button onclick="copy(this.dataset.s,this)" data-s="'+d.playScript.replace(/"/g,'&quot;')+'">copy</button></div><textarea readonly>'+d.playScript.replace(/</g,'&lt;')+'</textarea>':'');
  p.scrollIntoView({behavior:'smooth'});
@@ -164,8 +171,9 @@ async function showLap(file){const d=await j('/api/lap?file='+encodeURIComponent
 async function tick(){try{const d=await j('/api/laps');TRACKS=d.tracks;
  $('sub').textContent=d.laps.length+' laps · tracks: '+(d.tracks.join(', ')||'none');
  const job=d.job;const jb=$('job');
- if(job){jb.classList.add('show');jb.innerHTML='<span class=dot style=background:'+(job.running?'#3fb950':'#8b949e')+'></span><b>optimize</b> '+job.lap+' on '+job.track+'  —  '
-   +(job.seed?'seed '+(job.seed/1000).toFixed(3)+'s → ':'')+(job.best?'<b style=color:#3fb950>best '+(job.best/1000).toFixed(3)+'s</b>':'…')+'  <span class=muted>'+job.secs+'s</span>  '
+ if(job){jb.classList.add('show');const rand=job.mode==='randomize';
+   const metric=rand?((job.time?job.time.toFixed(3)+'s':'…')+(job.diverged!=null?'  <b style=color:#58a6ff>'+job.diverged+'% different</b>':'')):((job.seed?'seed '+(job.seed/1000).toFixed(3)+'s → ':'')+(job.best?'<b style=color:#3fb950>best '+(job.best/1000).toFixed(3)+'s</b>':'…'));
+   jb.innerHTML='<span class=dot style=background:'+(job.running?'#3fb950':'#8b949e')+'></span><b>'+(job.mode||'optimize')+'</b> '+job.lap+' on '+job.track+'  —  '+metric+'  <span class=muted>'+job.secs+'s</span>  '
    +(job.running?'<button class=stop onclick=stop()>Stop</button>':'<span class=muted>(done — saved to '+job.out+')</span>')
    +'<div class=muted style=font-size:11px;margin-top:6px>'+(job.log||[]).join('<br>')+'</div>';}
  else jb.classList.remove('show');
