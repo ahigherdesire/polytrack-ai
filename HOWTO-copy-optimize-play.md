@@ -12,6 +12,20 @@ frame-perfect.
 
 ---
 
+## ⭐ Easy mode: the control panel
+
+Instead of typing commands to inspect laps, run this once in the terminal:
+```powershell
+node bridge/ui.js 7800
+```
+then open **http://localhost:7800** in your browser. It lists every lap you have
+(track, driver, time, inputs), shows the live optimizer status, and gives you a
+**one-click "copy play script"** for each lap — paste that into the game console and
+press a key to watch it. You still capture tracks and fetch laps with the steps
+below, but the panel is the easiest way to see everything and grab a lap to play.
+
+---
+
 ## 0. Words you'll see (read this once)
 
 - **Terminal** = a black/blue text window where you type commands. On Windows, open
