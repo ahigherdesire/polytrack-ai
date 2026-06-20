@@ -43,6 +43,15 @@ const KEYS = ['up', 'down', 'left', 'right'];   // we don't perturb 'reset'
   if (bestF === null) { console.error('seed does not finish in this sim — track/seed mismatch?'); process.exit(1); }
   console.error(`seed finishes at ${bestF} (${(bestF / 1000).toFixed(3)}s). hill-climbing ${ITERS} iters...`);
 
+  const outFile = out || seedFile.replace(/\.json$/, '') + '.optimized.json';
+  function saveBest() {
+    const trimmed = best.slice(0, bestF);
+    const recording = actionsToRecording(trimmed, {});
+    fs.mkdirSync(path.dirname(outFile), { recursive: true });
+    fs.writeFileSync(outFile, JSON.stringify({ kind: 'optimizedLap', finishFrames: bestF, finishSeconds: bestF / 1000, frames: bestF, recording, actions: trimmed }));
+  }
+  saveBest();   // save the seed-as-best immediately so the file always exists
+
   const rnd = (n) => (Math.random() * n) | 0;
   let accepted = 0;
   const t0 = Date.now();
@@ -56,17 +65,11 @@ const KEYS = ['up', 'down', 'left', 'right'];   // we don't perturb 'reset'
       if (k === 'down' && v) cand[f].up = false;
     }
     const f = finishFrames(cand, bestF + MARGIN);
-    if (f !== null && f < bestF) { best = cand; bestF = f; accepted++; console.error(`  it ${it}: improved -> ${bestF} (${(bestF / 1000).toFixed(3)}s)`); }
+    if (f !== null && f < bestF) { best = cand; bestF = f; accepted++; saveBest(); console.error(`  it ${it}: improved -> ${bestF} (${(bestF / 1000).toFixed(3)}s)`); }
     if (it % 50 === 49) console.error(`  ...${it + 1}/${ITERS}  best=${bestF}  (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
   }
 
+  saveBest();
   console.error(`\ndone. best=${bestF} (${(bestF / 1000).toFixed(3)}s)  accepted ${accepted}/${ITERS}  vs seed ${seed.finishFrames ?? '?'}`);
-  // trim the held tail after finish and emit a recording
-  const trimmed = best.slice(0, bestF);
-  const recording = actionsToRecording(trimmed, {});
-  const payload = { kind: 'optimizedLap', finishFrames: bestF, finishSeconds: bestF / 1000, frames: bestF, recording, actions: trimmed };
-  const outFile = out || seedFile.replace(/\.json$/, '') + '.optimized.json';
-  fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  fs.writeFileSync(outFile, JSON.stringify(payload));
-  console.error('wrote', outFile, '(has .recording you can play/submit)');
+  console.error('wrote', outFile, '(updated on every improvement; has .recording you can play/submit)');
 })().catch((e) => { console.error(e.message); process.exit(1); });
