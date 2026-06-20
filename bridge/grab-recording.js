@@ -15,6 +15,8 @@
   const match = (u) => /recordings|leaderboard/.test(String(u));
 
   function harvest(url, text) {
+    const tm = String(url).match(/[?&]trackId=([0-9a-fA-F]+)/);
+    if (tm) { window.__polyTrackId = tm[1]; console.log('[grab] trackId =', tm[1]); }
     let data; try { data = JSON.parse(text); } catch { return; }
     const out = [];
     (function walk(o, ctx) {
