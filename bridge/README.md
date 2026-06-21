@@ -32,9 +32,20 @@ frame-exact inputs and is exactly what the leaderboard accepts.
   FASTER finish, keeping only changes that still finish, in fewer frames, verified in
   the headless sim. Outputs a ready `.recording`.
 - **`randomize-lap.js`** — random mode: scramble a lap's inputs into a DIFFERENT lap
-  that still finishes (a bit slower is fine), so a copied run isn't byte-identical to
-  the original player's recording.
-  `node bridge/randomize-lap.js <seed-lap.json> <track.json> [iters] [out.json] [maxSlowerSeconds]`
+  that still finishes, so a copied run isn't byte-identical to the original player's
+  recording. Edits flip inputs *away* from the original and are only kept if they
+  **add** divergence and stay inside a tight time budget — so divergence piles up in
+  near-free (physics-neutral) inputs while the lap stays fast. A snapshot ladder
+  re-simulates only the tail after each edit (no full replay per iteration).
+  `node bridge/randomize-lap.js <seed-lap.json> <track.json> [iters=2000] [out.json] [maxSlowerSeconds=0.5] [snaps=8]`
+  (bigger `maxSlowerSeconds` = bolder, line-changing variations; more `snaps` = faster
+  but more memory, 16MB each.) Proven: a Hollow-Dunes-style WR taken to ~40% different
+  inputs while finishing within +0.5s.
+  **The lap and the track must match** — a recording is button presses for ONE track.
+  If you see `seed does not finish in this sim — track/seed mismatch?`, you paired the
+  wrong track (e.g. `hollowdunes_best.json` with `tracks/desert.json`); the saved output
+  is invalid. Use the matching track: `hollowdunes_best.json` ↔ `tracks/hollowdunes.json`,
+  `desert_wr.json` ↔ `tracks/desert.json`, etc. (Same rule for `optimize-lap.js`.)
 - **`ui.js`** — control panel (http://localhost:7800): lists laps, one-click copy of
   the play script, and **Optimize / Randomize buttons** that run the above for you
   (no path/quoting issues).

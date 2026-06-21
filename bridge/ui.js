@@ -27,9 +27,13 @@ function toggleCounts(actions) {
   for (const a of actions) { for (const k of ORDER) if (!!a[k] !== !!prev[k]) t[k]++; prev = a; }
   return t;
 }
-const baseName = (n) => n.replace(/\.json$/, '').replace(/(_wr|_best|\.optimized|\.recording)$/i, '');
+const baseName = (n) => n.replace(/\.json$/, '').replace(/(_wr|_best|_random|\.optimized|\.recording)$/i, '');
 const findLap = (file) => DIRS.map((d) => path.join(d, file)).find((p) => fs.existsSync(p));
 const listTracks = () => { try { return fs.readdirSync(TRACKS).filter((f) => f.endsWith('.json')).map((f) => f.replace(/\.json$/, '')); } catch { return []; } };
+const variantOf = (f) => { const n = f.toLowerCase(); if (/_random/.test(n)) return 'random'; if (/_best|\.optimized/.test(n)) return 'best'; if (/_wr/.test(n)) return 'wr'; return 'source'; };
+// Best-guess the captured track file that matches a lap's base name (so we can
+// auto-select it and avoid track/seed mismatches). Longest match wins.
+function guessTrack(base) { let best = null; for (const t of listTracks()) { if (base === t || base.endsWith('_' + t) || base.includes(t)) { if (!best || t.length > best.length) best = t; } } return best; }
 
 function scanLaps() {
   const seen = new Set(); const laps = [];
@@ -42,7 +46,7 @@ function scanLaps() {
         const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (!isLap(j)) continue;
         seen.add(f);
         const frames = j.finishFrames ?? j.frames ?? (j.actions ? j.actions.length : 0);
-        laps.push({ file: f, name: f.replace(/\.json$/, ''), track: baseName(f), driver: j.nickname || null, kind: j.kind || (j.recording ? 'recording' : 'lap'), frames, seconds: +(frames / 1000).toFixed(3), actions: j.actions ? j.actions.length : null, mtime: st.mtimeMs });
+        laps.push({ file: f, name: f.replace(/\.json$/, ''), track: baseName(f), match: guessTrack(baseName(f)), variant: variantOf(f), driver: j.nickname || null, kind: j.kind || (j.recording ? 'recording' : 'lap'), frames, seconds: +(frames / 1000).toFixed(3), actions: j.actions ? j.actions.length : null, mtime: st.mtimeMs });
       } catch {}
     }
   }
@@ -53,7 +57,7 @@ function lapDetail(file) {
   const j = JSON.parse(fs.readFileSync(full, 'utf8'));
   const rec = recordingOf(j);
   const frames = j.finishFrames ?? j.frames ?? (j.actions ? j.actions.length : 0);
-  return { file, driver: j.nickname || null, kind: j.kind || 'lap', frames, seconds: +(frames / 1000).toFixed(3), toggles: j.actions ? toggleCounts(j.actions) : null, recording: rec };
+  return { file, match: guessTrack(baseName(file)), driver: j.nickname || null, kind: j.kind || 'lap', frames, seconds: +(frames / 1000).toFixed(3), toggles: j.actions ? toggleCounts(j.actions) : null, recording: rec };
 }
 
 // ---- one job at a time (optimize OR randomize) ----
@@ -66,7 +70,7 @@ function startJob(lapFile, track, iters, mode) {
   const random = mode === 'random';
   const out = path.join(GRABBED, baseName(lapFile) + (random ? '_random.json' : '_best.json'));
   const script = path.join(__dirname, random ? 'randomize-lap.js' : 'optimize-lap.js');
-  const args = random ? [script, lapPath, trackPath, String(iters), out, '2'] : [script, lapPath, trackPath, String(iters), out];
+  const args = random ? [script, lapPath, trackPath, String(iters), out, '0.5', '8'] : [script, lapPath, trackPath, String(iters), out];
   fs.mkdirSync(GRABBED, { recursive: true });
   const proc = spawn(process.execPath, args, { cwd: ROOT });
   job = { lap: lapFile, track, mode: random ? 'randomize' : 'optimize', out: path.basename(out), iters, startedAt: Date.now(), log: [], best: null, seed: null, time: null, diverged: null, done: false, proc };
@@ -139,11 +143,14 @@ select,input{background:#0a0d12;color:var(--fg);border:1px solid var(--bd);borde
 .row{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;align-items:flex-end}.k{color:var(--mut);font-size:11px;text-transform:uppercase}.v{font-size:20px;font-weight:600}
 textarea{width:100%;height:110px;background:#0a0d12;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:8px;font:inherit;font-size:11px;white-space:pre}
 .bar span{background:#21262d;border-radius:4px;padding:2px 8px;font-size:12px;margin-right:8px}.muted{color:var(--mut)}.act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:10px;background:#0e131a;border:1px solid var(--bd);border-radius:6px}
+.grp td{background:#10151c}.grp:hover td{background:#10151c}.ok2{color:var(--acc);font-size:11px}.warn2{color:var(--warn);font-size:11px}
+.bd-wr,.bd-best,.bd-rand,.bd-src{font-size:11px;padding:1px 8px;border-radius:10px;font-weight:600}
+.bd-wr{background:#10325a;color:#58a6ff}.bd-best{background:#0f3d23;color:#3fb950}.bd-rand{background:#3a2a55;color:#bd93f9}.bd-src{background:#21262d;color:#8b949e}
 </style>
 <div class=wrap>
 <h1>🏁 PolyTrack Lap Panel</h1><div class=sub id=sub>scanning…</div>
 <div class=job id=job></div>
-<table><thead><tr><th>Track</th><th>Driver / source</th><th>Time</th><th>Frames</th><th>Inputs</th><th></th></tr></thead><tbody id=rows></tbody></table>
+<table><thead><tr><th>Type</th><th>Driver / source · file</th><th>Time</th><th>Frames</th><th>Inputs</th><th></th></tr></thead><tbody id=rows></tbody></table>
 <div class=panel id=panel></div>
 </div>
 <script>
@@ -154,7 +161,8 @@ async function optimize(lap,mode){const track=$('tsel').value;const iters=$('ite
 async function stop(){await j('/api/stop',{method:'POST'});tick();}
 async function showLap(file){const d=await j('/api/lap?file='+encodeURIComponent(file));const p=$('panel');p.classList.add('show');
  const tg=d.toggles?Object.entries(d.toggles).filter(([k])=>k!=='reset').map(([k,v])=>'<span>'+k+': '+v+'</span>').join(''):'';
- const opts=TRACKS.map(t=>'<option>'+t+'</option>').join('');
+ const opts=TRACKS.map(t=>'<option'+(t===d.match?' selected':'')+'>'+t+'</option>').join('');
+ const trackNote=d.match?'<span class=ok2>track auto-selected: '+d.match+'</span>':'<span class=warn2>⚠ no matching track file — capture this track first, or pick one below</span>';
  p.innerHTML='<div class=row><div><div class=k>File</div><div class=v style=font-size:15px>'+d.file+'</div></div>'
   +'<div><div class=k>Time</div><div class=v style=color:#3fb950>'+d.seconds+'s</div></div>'
   +'<div><div class=k>Frames</div><div class=v>'+d.frames+'</div></div>'
@@ -163,7 +171,7 @@ async function showLap(file){const d=await j('/api/lap?file='+encodeURIComponent
   +'<div class=act><b>Run on</b> track <select id=tsel>'+opts+'</select> iters <input id=iters value=4000 size=6 style=width:70px> '
   +'<button class=go onclick="optimize(\\''+d.file+'\\',\\'optimize\\')">⚡ Optimize (faster)</button> '
   +'<button class=go onclick="optimize(\\''+d.file+'\\',\\'random\\')">🎲 Randomize (different)</button> '
-  +'<span class=muted>optimize → faster · randomize → different inputs, still finishes</span></div>'
+  +trackNote+'</div>'
   +'<div class=k style=margin-top:6px>Recording <button onclick="copy(this.dataset.r,this)" data-r="'+(d.recording||'')+'">copy</button></div><textarea readonly>'+(d.recording||'(none)')+'</textarea>'
   +(d.playScript?'<div class=k style=margin-top:10px>▶️ Play script (paste in game console) <button onclick="copy(this.dataset.s,this)" data-s="'+d.playScript.replace(/"/g,'&quot;')+'">copy</button></div><textarea readonly>'+d.playScript.replace(/</g,'&lt;')+'</textarea>':'');
  p.scrollIntoView({behavior:'smooth'});
@@ -177,7 +185,25 @@ async function tick(){try{const d=await j('/api/laps');TRACKS=d.tracks;
    +(job.running?'<button class=stop onclick=stop()>Stop</button>':'<span class=muted>(done — saved to '+job.out+')</span>')
    +'<div class=muted style=font-size:11px;margin-top:6px>'+(job.log||[]).join('<br>')+'</div>';}
  else jb.classList.remove('show');
- $('rows').innerHTML=d.laps.map(l=>'<tr><td class=t>'+l.track+'</td><td>'+(l.driver||l.kind)+'</td><td style=color:#3fb950>'+l.seconds+'s</td><td class=muted>'+l.frames+'</td><td class=muted>'+(l.actions?'~'+l.actions+'f':'')+'</td><td><button onclick="showLap(\\''+l.file+'\\')">details ▸</button></td></tr>').join('')||'<tr><td colspan=6 class=muted>No laps yet.</td></tr>';
+ $('rows').innerHTML=renderRows(d.laps)||'<tr><td colspan=6 class=muted>No laps yet.</td></tr>';
 }catch(e){$('sub').textContent='error: '+e}}
+const VORD={wr:0,best:1,random:2,source:3};
+const VBADGE={wr:'<span class=bd-wr>WR / source</span>',best:'<span class=bd-best>optimized</span>',random:'<span class=bd-rand>randomized</span>',source:'<span class=bd-src>lap</span>'};
+function renderRows(laps){
+ const groups={};laps.forEach(l=>{const k=l.match||l.track;(groups[k]=groups[k]||{key:k,laps:[],mtime:0});groups[k].laps.push(l);groups[k].mtime=Math.max(groups[k].mtime,l.mtime);});
+ const order=Object.values(groups).sort((a,b)=>b.mtime-a.mtime);let html='';
+ for(const g of order){const ready=TRACKS.includes(g.key);
+  html+='<tr class=grp><td colspan=6>🏁 <b>'+g.key+'</b> &nbsp;'+(ready?'<span class=ok2>● track ready</span>':'<span class=warn2>● no track file — capture it to optimize/randomize</span>')+'</td></tr>';
+  g.laps.sort((a,b)=>(VORD[a.variant]-VORD[b.variant])||(b.mtime-a.mtime));
+  for(const l of g.laps){html+='<tr><td>'+(VBADGE[l.variant]||'')+'</td>'
+   +'<td>'+(l.driver||l.kind)+'<div class=muted style=font-size:11px>'+l.file+'</div></td>'
+   +'<td style=color:#3fb950>'+l.seconds+'s</td><td class=muted>'+l.frames+'</td><td class=muted>'+(l.actions?'~'+l.actions+'f':'')+'</td>'
+   +'<td style=white-space:nowrap><button title="copy play script" onclick="quickCopy(\\''+l.file+'\\',\\'play\\',this)">▶ play</button> '
+   +'<button title="copy recording string" onclick="quickCopy(\\''+l.file+'\\',\\'rec\\',this)">⧉ rec</button> '
+   +'<button title="details" onclick="showLap(\\''+l.file+'\\')">▸</button></td></tr>';}
+ }
+ return html;
+}
+async function quickCopy(file,which,btn){const d=await j('/api/lap?file='+encodeURIComponent(file));const t=which==='play'?d.playScript:d.recording;if(!t){alert('no recording in this file');return}copy(t,btn);}
 tick();setInterval(tick,2500);
 </script>`;

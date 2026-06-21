@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf8">
+<title>PolyTrack command builder</title>
+<style>
+  :root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;--acc:#3fb950;--acc2:#58a6ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:880px;margin:0 auto;padding:24px}
+  h1{font-size:19px;margin:0 0 4px}.sub{color:var(--mut);font-size:12px;margin-bottom:18px}
+  .field{display:flex;gap:18px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:14px;flex-wrap:wrap}
+  .field>div{display:flex;flex-direction:column;gap:4px}
+  label{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  input,textarea{background:#0a0d12;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:8px 10px;font:inherit;font-size:14px}
+  #name{font-size:17px;font-weight:600;color:var(--acc2);min-width:200px}
+  #rec{width:100%;height:60px;white-space:pre;font-size:12px}
+  .recwrap{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:18px}
+  .cmd{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+  .cmd .t{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .cmd .t b{color:var(--fg)}
+  .cmd code{display:block;white-space:pre-wrap;word-break:break-all;background:#0a0d12;border:1px solid var(--bd);border-radius:6px;padding:10px;color:var(--fg);font-size:13px}
+  .cmd code .hl{color:var(--acc2);font-weight:600}
+  .num{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;background:#21262d;border-radius:50%;font-size:11px;margin-right:8px;color:var(--acc2)}
+  button{background:#21262d;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:4px 12px;cursor:pointer;font:inherit;font-size:12px;white-space:nowrap}
+  button:hover{border-color:var(--acc2)}button.ok{color:var(--acc);border-color:var(--acc)}
+  .note{color:var(--mut);font-size:12px;margin-top:18px}
+  code.inline{background:#0a0d12;border:1px solid var(--bd);border-radius:6px;padding:4px 8px;display:inline-block;margin-top:4px}
+</style>
+<div class="wrap">
+  <h1>🏁 PolyTrack command builder</h1>
+  <div class="sub">Type the track name once — the whole workflow fills in, top to bottom. Copy each, paste into PowerShell.</div>
+
+  <div class="field">
+    <div><label for="name">Track name</label><input id="name" value="dfive" autofocus spellcheck="false"></div>
+    <div><label for="trackid">TrackID (for fetch)</label><input id="trackid" placeholder="paste trackId…" size="22" spellcheck="false"></div>
+    <div><label for="iters">Optimize iters</label><input id="iters" value="8000" style="width:90px"></div>
+  </div>
+
+  <div class="recwrap">
+    <label for="rec">Recording string — paste the output of step 4 here; it drops into the play script below</label>
+    <textarea id="rec" placeholder="(run step 4, paste its output here)" spellcheck="false"></textarea>
+  </div>
+
+  <div id="cmds"></div>
+
+  <div class="note">All commands assume you're in the project folder:
+    <br><code class="inline">cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"</code></div>
+</div>
+
+<script>
+  const PLAY_TPL = `(() => {
+  const REC = '__REC__';
+  const ids = new Set(); let on = true;
+  const P = Worker.prototype; if (!P.__o) P.__o = P.postMessage; const o = P.__o;
+  P.postMessage = function (m, t) {
+    try { if (on && m && typeof m === 'object') {
+      if (m.messageType === 3 && m.carRecording == null) { ids.add(m.carId); m = { ...m, carRecording: REC }; console.log('[play] driving the lap'); }
+      if (m.messageType === 6 && ids.has(m.carId)) return undefined;
+      if (m.messageType === 4) ids.delete(m.carId);
+    } } catch (e) {}
+    return o.call(this, m, t);
+  };
+  window.__playOff = () => { on = false; P.postMessage = o; console.log('[play] off'); };
+  console.log('[play] active — enter the track and press an arrow key.');
+})();`;
+
+  // Ordered workflow. Placeholders: NAME, ITERS, TRACKID, __REC__.
+  const STEPS = [
+    { n: 1, t: '🧱 Build the track file from a browser capture', c: 'node train/make-track.js "C:\\Users\\LIXINYUAN\\Downloads\\NAME.json" NAME' },
+    { n: 2, t: '📥 Fetch the world-record lap (needs the TrackID)', c: 'node bridge/fetch-recording.js TRACKID 1 data/grabbed/NAME_wr.json' },
+    { n: 3, t: '⚡ Optimize — make it faster', c: 'node bridge/optimize-lap.js data/grabbed/NAME_wr.json tracks/NAME.json ITERS data/grabbed/NAME_best.json' },
+    { n: 4, t: '🖨️ Print the recording (paste the output into the box above)', c: 'node -e "console.log(require(\'./data/grabbed/NAME_best.json\').recording)"' },
+    { n: 5, t: '▶️ Play script — paste into the game console, then press an arrow key', c: PLAY_TPL },
+  ];
+
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function build(c, v) {
+    return c.replace(/ITERS/g, v.iters).replace(/TRACKID/g, v.trackid).replace(/__REC__/g, v.rec).replace(/NAME/g, v.name);
+  }
+  function highlight(html, terms) {
+    for (const term of terms) { if (term && term.length > 1) html = html.split(esc(term)).join('<span class="hl">' + esc(term) + '</span>'); }
+    return html;
+  }
+  function copy(text, btn) {
+    const done = () => { const o = btn.textContent; btn.textContent = 'copied!'; btn.classList.add('ok'); setTimeout(() => { btn.textContent = o; btn.classList.remove('ok'); }, 1200); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => fallback(text, done));
+    else fallback(text, done);
+  }
+  function fallback(text, done) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { alert('Copy failed — select the text manually.'); }
+    document.body.removeChild(ta);
+  }
+
+  const nameEl = document.getElementById('name'), idEl = document.getElementById('trackid'),
+        itersEl = document.getElementById('iters'), recEl = document.getElementById('rec'), out = document.getElementById('cmds');
+  function render() {
+    const v = {
+      name: (nameEl.value || 'NAME').trim().replace(/\s+/g, '_'),
+      trackid: idEl.value.trim() || 'TRACKID',
+      iters: (itersEl.value || '8000').trim(),
+      rec: recEl.value.trim() || 'PASTE_RECORDING_HERE',
+    };
+    out.innerHTML = '';
+    for (const step of STEPS) {
+      const cmd = build(step.c, v);
+      const div = document.createElement('div'); div.className = 'cmd';
+      div.innerHTML = '<div class="t"><span><span class="num">' + step.n + '</span><b>' + step.t + '</b></span> <button>copy</button></div>'
+        + '<code>' + highlight(esc(cmd), [v.name, v.trackid !== 'TRACKID' ? v.trackid : '']) + '</code>';
+      div.querySelector('button').addEventListener('click', (e) => copy(cmd, e.target));
+      out.appendChild(div);
+    }
+  }
+  for (const el of [nameEl, idEl, itersEl, recEl]) el.addEventListener('input', render);
+  render();
+</script>

@@ -1,0 +1,22 @@
+(() => {
+  const REC = 'eJwt0ktIlVEUBeDv_--96fX2oBqXVtpNpZdY9PDak7w9TDJLS9MoSITAIouKIEoCidBZ0KTGQYOaBY0dNAlHBRE0Fpo1bBJn1z9YHPY5a-211_7L0netakejoTV2Fv0qe8tMxdfcEO0lG5ijlVk28YJmFtfro4vT1OjhOCfYI7G6OcXeOB-gHtjHMU5yMCq1qNSCdTiuasHqoZ-jIfVuneuUShbYTGdmqWLLCvt5WfSzoLfRbjpDpMqXSpL6p3kmvHXxjQKTTEeXI9xnF1fZJum3MpX73aCDS2znijT1aoarGko-Sl3erzWQWV6ZWEsVzzIPC-nxqxbfczdZqNjIcwmf0MLTOM8FzgfeKib6TAhOxpjjnI-Rx8L5YBTr4b-by2FyhDaGw9vFMDwSuyg3ucFZ7kaGi5k_TOeJ_qbJeOZRJHCPQ0xEtj8y-4rm81QfzVLgd0pGVqXZPxTkNDcmn68jz9nwOR1mxhgIz_2Bdf9bTzEai56gl888pp1zgYPh_0Ks73bZg8i2P_cpT7dZ2dZQ6Ii52uJv_AvQMUq6';
+  const ids = new Set(); let on = true;
+  const P = Worker.prototype; if (!P.__o) P.__o = P.postMessage; const o = P.__o;
+  P.postMessage = function (m, t) {
+    try { if (on && m && typeof m === 'object') {
+      if (m.messageType === 3 && m.carRecording == null) { ids.add(m.carId); m = { ...m, carRecording: REC }; console.log('[play] driving the lap'); }
+      if (m.messageType === 6 && ids.has(m.carId)) return undefined;
+      if (m.messageType === 4) ids.delete(m.carId);
+    } } catch (e) {}
+    return o.call(this, m, t);
+  };
+  window.__playOff = () => { on = false; P.postMessage = o; console.log('[play] off'); };
+  console.log('[play] active — enter the track and press an arrow key.');
+})();
+
+
+
+node bridge/decode-recording.js "eNo1kktrU1EUhb9zQ0gIOIgBA4q2ICSUPHwRJS-N5mU1JlpbHzEQgrYVA1I0ilKogth5C4KD1kkHGTv2B4iOBSf6D_wBznSfBblcDvfus_Zea6-9w_hnP0064GeIgaMJPwLy8BZSMIHz8ELnGErwAY7BrygFWIMeLOntCrwIV6GaowWPlDWAKxBx3IcOXIPLcFNXtwypFAtW4Dbcg9f6bUMD4gE5eAfzdhvlq2Ab-OAw5M-L8BAuwPcEb-Ac9EOeri1hRlSGGNQTZELU4mxaX2HWYS_FxPEvyQPHLpyO-JZH-PZHyr0BT1Xni2R3xWvsfdX8FmXb8cp56i1Iw45EHkAUPkLGtDlOmgbHHJx1LMCZwBv4HC7BM6jJUnPprqwYwqqceW94-BPjBHxS2Skcht-BpxtIlZm8rA_zuQ7XJdKCRblXUrCoiCn5KyvaKr4korJgHY3GIqcge4isVNnQn8BRyAccgcdmjjUe88jl2birym3K_xVNqi6uknyrCJkRkQHuaNbTwGMaUtIT8iV-hXpS1ZIDXS1DV5Ubs3bGEtAUoKAdS8JnOK7V_Q-J70wr" 29027 data/grabbed/dfive_wr.json
+
+
+node bridge/optimize-lap.js data/grabbed/dfive_wr.json tracks/dfive.json 8000 data/grabbed/dfive_best.json

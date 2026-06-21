@@ -5,9 +5,9 @@
 //
 // HOW TO USE (on https://app-polytrack.kodub.com/0.6.2/):
 //   1. Paste this whole script into the DevTools console.
-//   2. Open the track's leaderboard and WATCH the lap(s) you want to copy
-//      (e.g. the world record). Each one gets captured.
-//   3. Run __polyDumpGrabbed("recordings")  -> downloads recordings.json
+//   2. Open the track's leaderboard and WATCH the lap you want to copy
+//      (e.g. the world record). Only the MOST RECENT lap you watch is kept.
+//   3. Run __polyDumpGrabbed("recordings")  -> downloads recordings.json (1 lap)
 //   4. On your PC: node bridge/decode-recording.js <recording> <frames> out.json
 //      (recording string + frames are both in the dumped json)
 (() => {
@@ -33,10 +33,10 @@
       for (const k in o) walk(o[k], nctx);
     })(data, {});
     for (const f of out) {
-      if (!grabbed.some((g) => g.recording === f.recording)) {
-        grabbed.push({ ...f, url });
-        console.log(`[grab] "${f.name ?? '?'}"  frames=${f.frames ?? '?'}  recLen=${f.recording.length}`);
-      }
+      // Keep ONLY the most recently watched lap, so a dump is always 1 recording.
+      grabbed.length = 0;
+      grabbed.push({ ...f, url });
+      console.log(`[grab] "${f.name ?? '?'}"  frames=${f.frames ?? '?'}  recLen=${f.recording.length}  (kept; replaces previous)`);
     }
   }
 
@@ -59,8 +59,8 @@
     if (!grabbed.length) { console.warn('[grab] nothing captured yet — watch a replay first.'); return; }
     const blob = new Blob([JSON.stringify(grabbed)], { type: 'application/json' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name + '.json'; a.click();
-    console.log('[grab] dumped', grabbed.length, 'recording(s)');
+    console.log('[grab] dumped', grabbed.length, 'recording (latest watched)');
   };
 
-  console.log('[grab] active. Open a track leaderboard and WATCH the lap(s) you want, then run __polyDumpGrabbed().');
+  console.log('[grab] active. Open a track leaderboard and WATCH the lap you want (latest is kept), then run __polyDumpGrabbed().');
 })();
