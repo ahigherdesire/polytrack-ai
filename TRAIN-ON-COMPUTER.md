@@ -1,10 +1,13 @@
-# Training / solving a lap — end to end
+# Train on your computer — solving a lap end to end
 
 The AI finds a lap with a **windowed root-parallel MCTS solver** that searches the
 real game physics (it replaced the stalled Evolution-Strategies trainer,
 `train/es_parallel.js`, kept only for reference). It drives on a geodesic
 **guidance field** built from the track's road surfaces, locks the moves it's
 confident about, slides the window forward, and repeats until the car finishes.
+
+> **Running on a Raspberry Pi instead?** See **`TRAIN-ON-PI.md`** — same solver, but
+> you capture on your PC, copy the track to the Pi, and keep it running over SSH.
 
 The whole flow is four stages:
 
@@ -203,7 +206,7 @@ In a **terminal**, from the **project's root folder** (the folder that contains 
 cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"
 ```
 ```bash
-# macOS / Linux / Git Bash / the Raspberry Pi
+# macOS / Linux / Git Bash
 cd ~/polytrack-ai
 ```
 Every `node train/...` command below is run from there. You need **Node.js
@@ -220,13 +223,14 @@ node train/solve_parallel.js 7200 100 12
 |---|---|---|
 | `budgetSeconds` | wall-clock cap; stops and writes the best lap when hit | `7200` (2 h) |
 | `simsPerWorker` | MCTS rollouts each worker runs per window | `100` |
-| `workers` | worker threads (root-parallel; more = stronger consensus, **not** faster wall-clock) | cores − 2 (Pi 5: **3**) |
+| `workers` | worker threads (root-parallel; more = stronger consensus, **not** faster wall-clock) | **CPU cores − 2** |
 
 Effective search per window = `simsPerWorker × workers`. Wall-time per window is set
 by **one** worker's `simsPerWorker` (workers run in parallel), so lowering
 `simsPerWorker` makes each window — and each stuck/retry cycle — faster, at the cost
-of shakier locks. Pick `workers` = your CPU core count minus 2 (leave headroom); more
-than that just fights for cores.
+of shakier locks. Set `workers` to your core count minus 2 (leave headroom); more than
+that just fights for cores. (Find your core count: PowerShell `echo $env:NUMBER_OF_PROCESSORS`,
+or `node -e "console.log(require('os').cpus().length)"`.)
 
 ### 2.3 Which track it solves
 
@@ -416,15 +420,16 @@ All in `train/`, run as `node train/<file>.js`:
 ## 8. Stopping / fresh start
 
 - The solver is stateless per run (it rebuilds the field and re-seeds each launch) —
-  just re-run the command. To wipe the old ES brain/replay, use
-  `node train/control_panel.js 7790` → **Start Fresh Learning Run**.
-- **Stopping on Windows:** `pkill -f solve_parallel` does **not** reliably kill Node.
-  Kill by PID, or stray solvers keep eating cores and slow every other run:
+  just re-run the command. `Ctrl+C` in a foreground terminal stops it.
+- **Stopping a background run on Windows:** `pkill -f solve_parallel` does **not**
+  reliably kill Node. Kill by PID, or stray solvers keep eating cores and slow every
+  other run:
   ```powershell
   Get-CimInstance Win32_Process -Filter "name='node.exe'" |
     Where-Object { $_.CommandLine -like '*solve_parallel*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
   ```
+- On macOS/Linux: `pkill -f solve_parallel` works.
 
 ---
 
@@ -435,4 +440,3 @@ at x ≈ −64** where a low surface steps up to the main road — it can't fini
 yet. Vertical walls are filtered out of the road mesh, so the geodesic routes through
 them; the fix needs wall modelling and/or an off-surface penalty in the MCTS score,
 not just field tuning. Full write-up in project memory (`sone-lower-deck-trap`).
-```
