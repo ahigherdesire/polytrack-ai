@@ -193,9 +193,27 @@ or `bridge/README.md`.
 
 ## 2. Solve (run the search)
 
+### 2.1 Where to run it
+
+In a **terminal**, from the **project's root folder** (the folder that contains the
+`train/` and `data/` directories). Open the terminal there first:
+
+```powershell
+# Windows PowerShell
+cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"
+```
 ```bash
-# from the repo root.  args:  <budgetSeconds> <simsPerWorker> <workers>
-node train/solve_parallel.js 7200 100 12  > solve.log 2>&1 &
+# macOS / Linux / Git Bash / the Raspberry Pi
+cd ~/polytrack-ai
+```
+Every `node train/...` command below is run from there. You need **Node.js
+installed** (`node --version` should print something like `v20+`).
+
+### 2.2 The command
+
+```bash
+#            <budgetSeconds> <simsPerWorker> <workers>
+node train/solve_parallel.js 7200 100 12
 ```
 
 | arg | meaning | good default |
@@ -207,19 +225,80 @@ node train/solve_parallel.js 7200 100 12  > solve.log 2>&1 &
 Effective search per window = `simsPerWorker × workers`. Wall-time per window is set
 by **one** worker's `simsPerWorker` (workers run in parallel), so lowering
 `simsPerWorker` makes each window — and each stuck/retry cycle — faster, at the cost
-of shakier locks.
+of shakier locks. Pick `workers` = your CPU core count minus 2 (leave headroom); more
+than that just fights for cores.
 
-**Solve a captured track:**
-```bash
-TRACK=tracks/mytrack.json  node train/solve_parallel.js 7200 100 12 > solve.log 2>&1 &
-#   output then lands in  data/es_lap.mytrack.json  /  data/solve_run.mytrack.json
+### 2.3 Which track it solves
+
+`solve_parallel.js` takes **no track argument** — the three numbers are budget/sims/
+workers. It solves whatever the **`TRACK` environment variable** points at, and with
+`TRACK` unset it defaults to **`data/constants.json`** (currently Summer 1 / "sone").
+
+```powershell
+# PowerShell — solve a captured track (note the separate $env: line)
+$env:TRACK = "tracks/mytrack.json"
+node train/solve_parallel.js 7200 100 12
+$env:TRACK = ""     # clear it again when done
 ```
+```bash
+# Git Bash / macOS / Linux — inline
+TRACK=tracks/mytrack.json  node train/solve_parallel.js 7200 100 12
+```
+Output for a `TRACK=` run lands in `data/es_lap.<name>.json` / `data/solve_run.<name>.json`
+instead of the plain `es_lap.json`.
 
-**Seeding (on by default):** before searching, the guidance rollout policy drives the
-easy opening open-loop and hands the reliably-driven prefix to MCTS, so search starts
-near the first hard feature instead of re-deriving the launch.
-- Disable: `SEED=0 node train/solve_parallel.js …`
-- Cap how far greedy may drive: `SEED_FRAMES=20000 …` (default `30000`).
+### 2.4 Run it in the background (optional)
+
+The solver runs for a long time, so you usually want it logging to a file while you do
+other things:
+
+```bash
+# Git Bash / macOS / Linux — run detached, all output to solve.log
+node train/solve_parallel.js 7200 100 12  > solve.log 2>&1 &
+```
+```powershell
+# Windows PowerShell — run detached, output to solve.log
+Start-Process node -ArgumentList "train/solve_parallel.js","7200","100","12" `
+  -RedirectStandardOutput solve.log -RedirectStandardError solve.err -NoNewWindow
+```
+Or just run the plain command in §2.2 and leave the terminal window open — it prints
+progress live. Stopping it is in §8 (on Windows, kill by PID — `Ctrl+C` in a
+foreground window also works).
+
+### 2.5 What you should see
+
+Startup takes ~**30–60 s** (each worker boots its own physics engine + builds the
+guidance field), then windows begin. A healthy run looks like this:
+
+```text
+solving constants.json  budget=7200s  workers=12  sims/worker=100  (effective 1200/window)
+initializing workers 1/12...  ...  12/12...
+guidance: 6795 cells, 3 checkpoints, 1 finish
+greedy seed: drove 12.60s (maxCp=1); locked 8.96s -> search resumes at cp=1 speed=173
+w0  t=13s  locked=9.06s  cp=1 speed=179 pos=(44,3,3)  wheels=4
+w5  t=77s  locked=9.56s  cp=1 speed=202 pos=(17,0,3)  wheels=4
+w10 t=139s locked=10.06s cp=1 speed=227 pos=(-12,0,3) wheels=4
+...
+```
+- The **`guidance:`** line confirms the track loaded (cells + checkpoints + finish).
+- The **`greedy seed:`** line shows the easy opening was auto-driven (see §2.6).
+- Each **`w<N>`** line is one search window (logged every 5). `locked` = seconds of
+  lap committed so far — **this number going up is progress.** How to read the rest is
+  in §3.
+
+**Timing expectations:** each window is roughly **9–20 s** and commits ~0.1–0.5 s of
+lap, so a full ~25 s lap is a few hundred windows — think **tens of minutes to a
+couple of hours**, and it may legitimately run the whole budget. It's normal for
+`speed` to swing and for occasional `STUCK — rewinding` lines (a hard corner being
+re-attempted). See §9 for the one track (sone) that currently can't finish.
+
+### 2.6 Seeding (on by default)
+
+Before searching, the guidance rollout policy drives the easy opening open-loop and
+hands the reliably-driven prefix to MCTS, so search starts near the first hard feature
+instead of wasting minutes re-deriving the launch (that's the `greedy seed:` line).
+- Disable: set `SEED=0` (PowerShell: `$env:SEED="0"`).
+- Cap how far greedy may drive: `SEED_FRAMES=20000` (default `30000`).
 
 ---
 
@@ -245,15 +324,29 @@ frame-by-frame replay (see §7).
 
 ## 4. Get the result
 
-When it finishes (or the budget expires) it writes **`data/es_lap.json`**
-(`data/es_lap.<track>.json` for a `TRACK=` run):
+The run ends one of two ways, and prints which. **A finish:**
+```text
+*** FINISH (locked) 23.412s
+wrote 23.412s lap (23412 frames) -> data/es_lap.json
+```
+**Or the budget/horizon ran out before a finish** (a partial best-effort lap):
+```text
+budget/horizon reached — no finish, writing partial
+wrote partial (11060 frames) -> data/es_lap.json
+```
+
+Either way it writes **`data/es_lap.json`** (`data/es_lap.<track>.json` for a `TRACK=`
+run):
 ```jsonc
 { "kind": "fastestFinish", "finishSeconds": 23.4, "frames": 23400, "actions": [ … ] }
 ```
-- `kind: "fastestFinish"` → a real finishing lap.
-- `kind: "bestRewardFallback"` → best partial so far (no finish yet).
+- `kind: "fastestFinish"` → a **real finishing lap** — go to §5 to verify & play it.
+- `kind: "bestRewardFallback"` → **best partial so far** (no finish yet). Re-running
+  with a bigger `budgetSeconds`, or fixing the blocking feature (§7, §9), is the way
+  forward.
 
 `actions` is the per-frame input list — the same format the bridge tools consume.
+`data/solve_run.json` also records the final `status` (`done`) and `bestFinishS`.
 
 ---
 
