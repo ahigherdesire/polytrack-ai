@@ -1,0 +1,349 @@
+\documentclass[11pt]{article}
+
+% ---------------------------------------------------------------------------
+% How Does PolyTrack Know a Run Was Driven by a Bot?
+% Compile:  pdflatex bot-detection-paper.tex   (run twice for refs)
+% No exotic packages; should build on any standard TeX Live / MiKTeX.
+% ---------------------------------------------------------------------------
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\hypersetup{colorlinks=true, linkcolor=blue!55!black,
+            urlcolor=blue!55!black, citecolor=blue!55!black}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\round}[1]{\left\lfloor #1 \right\rceil}
+
+% --- listings style for the companion Python ------------------------------
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codekw}{rgb}{0.13,0.29,0.53}
+\definecolor{codecm}{rgb}{0.30,0.50,0.30}
+\definecolor{codestr}{rgb}{0.58,0.20,0.20}
+\lstdefinestyle{py}{
+  language=Python, backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\footnotesize, keywordstyle=\color{codekw}\bfseries,
+  commentstyle=\color{codecm}\itshape, stringstyle=\color{codestr},
+  showstringspaces=false, breaklines=true, frame=single, framerule=0pt,
+  numbers=left, numberstyle=\tiny\color{gray}, xleftmargin=2.2em,
+}
+\lstdefinestyle{out}{
+  basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{codebg},
+  frame=single, framerule=0pt, breaklines=true,
+}
+
+\title{\textbf{How Does PolyTrack Know a Run Was Driven by a Bot?}\\[4pt]
+\large A deterministic-replay and statistical-detection analysis}
+\author{Companion code: \texttt{bot\_detection.py} (pure NumPy)}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+PolyTrack (Kodub) stores every leaderboard time as a \emph{recorded input
+sequence} replayed through a \emph{bit-exact, fixed-timestep physics engine}.
+This single architectural choice does two very different jobs that are routinely
+confused. First, it makes times \emph{verifiable}: you do not upload a number,
+you upload the keystrokes that produce it, and anyone can re-simulate them --- so
+\emph{forged times are impossible}. Second, it does \emph{not}, by itself,
+distinguish a fast human from a fast bot: a bot that submits a legal,
+re-simulatable trace produces a fully valid run. Telling that the \emph{driver}
+was an optimizer is a \emph{statistical} problem, not a verification problem.
+Part~I derives why determinism makes replay verification exact and delimits what
+it can and cannot catch. Part~II builds a principled detector from the
+fingerprint of a bot's input timing: hypothesis tests, a likelihood-ratio
+classifier, ROC analysis, and an information-theoretic bound on evasion, all
+demonstrated by the companion simulation.
+\end{abstract}
+
+\begin{remark}[Epistemic status]
+The PolyTrack \emph{client} architecture in Part~I (deterministic $1$\,ms
+physics, an input-recording leaderboard at \texttt{vps.kodub.com}, ghost
+replays) is established fact, observed directly while building this repository's
+headless simulator. The server-side \emph{detection policy} in Part~II is not
+published by Kodub; Part~II is the detector the author \emph{would} build,
+derived from first principles and validated in simulation. It is labeled as a
+model throughout.
+\end{remark}
+
+% =========================================================================
+\part*{Part I --- Verification: why a fake \emph{time} is impossible}
+\addcontentsline{toc}{section}{Part I --- Verification}
+
+\section{The run is the input, not the number}
+
+A PolyTrack run is integrated at a \textbf{fixed timestep} $\Delta t = 1$\,ms
+($1000$\,Hz). The engine is a Bullet build compiled to Emscripten/WASM and is
+\textbf{deterministic}: given the same initial state and input stream it returns
+bit-identical results on every machine (this repository's headless port
+reproduces the game's own self-test exactly). Formally the simulation is a
+deterministic map
+\begin{equation}
+s_{k+1} = F\!\left(s_k,\, u_k\right), \qquad s_0 = s_{\text{init}},
+\label{eq:step}
+\end{equation}
+where $s_k \in \R^{n}$ is the full physics state at frame $k$ (the $227$-byte car
+struct plus the rigid-body world) and $u_k \in \mathcal{U}$ is the control input
+on frame $k$ --- a bitmask over $\{\textsf{left},\textsf{right},\textsf{throttle},
+\textsf{brake}\}$. The finish time is the first frame the goal predicate holds,
+\begin{equation}
+T = \Delta t \cdot \min\{\, k : \mathrm{goal}(s_k) \,\}.
+\end{equation}
+Because $F$ is a pure function, $T$ is a \textbf{deterministic functional of the
+input sequence alone},
+\begin{equation}
+T = \mathcal{T}(u_{0:K}), \qquad u_{0:K} = (u_0, u_1, \dots, u_K).
+\label{eq:functional}
+\end{equation}
+The leaderboard therefore need not trust a reported time: it stores $u_{0:K}$
+(exactly what the ghost/replay feature plays back) and recomputes
+$\hat T = \mathcal{T}(u_{0:K})$ independently. \textbf{Validation is the assertion
+$\hat T = T_{\text{claimed}}$.}
+
+\section{What this catches, with certainty}
+
+\begin{proposition}[Forged times and impossible physics are rejected w.p.\ 1]
+Let an attacker submit a claimed time $T^\star$ with attached input $u_{0:K}$.
+\begin{enumerate}[label=(\alph*),nosep]
+  \item If $\mathcal{T}(u_{0:K}) \neq T^\star$, the run is rejected. No input
+        stream finishes in $0.0$\,s, so a forged time cannot be backed by a
+        replay.
+  \item Any state edit (teleport, speed hack) producing $s^{\text{hack}}_{k+1}$
+        for which no $u$ satisfies $F(s_k,u)=s^{\text{hack}}_{k+1}$ is
+        unreachable; the replay diverges from the claim and is rejected.
+\end{enumerate}
+\end{proposition}
+
+Determinism is what turns this into a \emph{proof} rather than a heuristic.
+Contrast a non-deterministic engine (variable timestep, RNG, float-order drift):
+there $\hat T \neq T$ even for honest runs, the equality test must be relaxed to a
+tolerance $|\hat T - T| < \varepsilon$, and that slack is precisely the room a
+cheater needs. The fixed $1$\,ms step removes the slack.
+
+\section{What this \emph{cannot} catch --- the crux}
+
+Replay verification checks that \emph{the input produces the time}; it says
+nothing about \emph{what produced the input}. A bot of the kind built in this
+repository does the honest thing: run the real physics $F$ headless, search or
+learn an input sequence $u^\star_{0:K}$ minimizing $\mathcal{T}$, then replay
+$u^\star$ in the browser. That submission satisfies $\hat T = T_{\text{claimed}}$
+\emph{exactly}, because it \emph{was} generated by $F$. Verification thus reduces
+the problem to: \emph{is this legal, re-simulatable input stream the kind of
+thing a human hand produces?} That is Part~II.
+
+% =========================================================================
+\part*{Part II --- Detection: the statistical fingerprint of a bot}
+\addcontentsline{toc}{section}{Part II --- Detection}
+
+\section{Threat model and the core asymmetry}
+
+We observe one or more legal traces from a player and decide between
+\begin{equation}
+H_0:\ \text{human driver} \qquad\text{vs.}\qquad H_1:\ \text{automated driver}.
+\end{equation}
+The leverage is a structural asymmetry in how the two generate $u_{0:K}$
+(Table~\ref{tab:asym}). Each row is measurable; none is individually conclusive;
+pooled, they separate cleanly (\S\ref{sec:pool}).
+
+\begin{table}[h]
+\centering
+\caption{Generative asymmetry between human and bot input.}
+\label{tab:asym}
+\begin{tabular}{lll}
+\toprule
+ & \textbf{Human} & \textbf{Bot (search / RL)} \\
+\midrule
+Time base    & continuous wall-clock        & the $1$\,ms grid is the planning unit \\
+Timing law   & ex-Gaussian intervals        & tight; can be frame-adjacent \\
+Repeatability& high lap-to-lap variance     & near-deterministic replay \\
+Optimality   & bounded by perception/dexterity & bounded only by search budget \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Detector 1 --- sub-frame phase (the sharpest single tell)}
+
+A human key event occurs at continuous wall-clock time $\tau$. The input layer
+records frame $k=\round{\tau/\Delta t}$, but the residual \textbf{sub-frame
+phase}
+\begin{equation}
+\phi = \frac{\tau}{\Delta t} - \round{\frac{\tau}{\Delta t}} \pmod 1
+\end{equation}
+is, over many events, $\phi \sim \mathrm{Uniform}[0,1)$: muscle twitches do not
+align to the engine's millisecond grid. A bot planning \emph{on} the grid emits
+integer frames, so $\phi \equiv 0$. Test $H_0:\ \phi\sim U[0,1)$ with a binned
+chi-square over $m$ bins,
+\begin{equation}
+X^2 = \sum_{j=1}^{m} \frac{(O_j - E_j)^2}{E_j}, \qquad E_j = \frac{N}{m},
+\qquad X^2 \overset{H_0}{\sim} \chi^2_{m-1}.
+\end{equation}
+The simulation (one run each) is decisive:
+\begin{lstlisting}[style=out]
+[D1 sub-frame phase chi^2]  human stat= 12.33 p=0.195  | bot stat=1080.00 p=9.58e-227
+\end{lstlisting}
+The human is consistent with uniform ($p\approx0.2$); the raw bot is rejected at
+$p\approx10^{-227}$. \emph{Caveat:} this tell evaporates if the bot dithers its
+phase before submitting (\S\ref{sec:evasion}) --- motivating multiple detectors.
+
+\section{Detector 2 --- the inter-event interval law}
+
+Human inter-response intervals follow the \textbf{ex-Gaussian} law (a Gaussian
+motor component convolved with an exponential decision tail),
+\begin{equation}
+f_{\text{exG}}(x;\mu,\sigma,\tau)=\frac{1}{\tau}
+\exp\!\left(\frac{\mu-x}{\tau}+\frac{\sigma^2}{2\tau^2}\right)
+\Phi\!\left(\frac{x-\mu}{\sigma}-\frac{\sigma}{\tau}\right),
+\end{equation}
+with a hard floor near $10$--$12$\,ms (one cannot voluntarily issue distinct
+presses faster). A bot has no such floor: an optimal plan routinely places
+control changes $1$--$3$\,ms apart. Compare empirical interval CDFs with a
+two-sample \textbf{Kolmogorov--Smirnov} statistic
+\begin{equation}
+D = \sup_x \left| F_{\text{obs}}(x) - F_{\text{human}}(x) \right|,
+\end{equation}
+calibrated against a human reference:
+\begin{lstlisting}[style=out]
+[D2 interval-law KS]  D=0.513  p=1.75e-14
+\end{lstlisting}
+A separation $D\approx0.5$ is enormous. The most human-impossible scalar is the
+\textbf{fraction of frame-adjacent intervals} ($\le 3$\,ms); we use it directly
+in the classifier because, unlike phase, it \emph{survives phase-dithering}:
+dithering moves events within a frame, it cannot widen a true $2$\,ms gap into a
+human $30$\,ms gap without changing the racing line.
+
+\section{Detector 3, Detector 4, and pooling}
+\label{sec:pool}
+
+Across $R$ repeated attempts, lap time has \textbf{coefficient of variation}
+\begin{equation}
+\mathrm{CV} = \frac{\mathrm{std}(T_1,\dots,T_R)}{\mathrm{mean}(T_1,\dots,T_R)},
+\end{equation}
+with humans near $5\%$ and a replayed bot at $\lesssim 0.3\%$. Detector~4 is the
+action \textbf{entropy} $H=-\sum_a p_a\log_2 p_a$: a clean optimal plan is
+slightly lower entropy than fidgety human input.
+
+\paragraph{Pooling.} The Neyman--Pearson optimal test combines features by their
+log-likelihood ratio,
+\begin{equation}
+\Lambda(x) = \log \frac{p(x\mid H_1)}{p(x\mid H_0)}
+\;\overset{H_1}{\underset{H_0}{\gtrless}}\; \eta,
+\label{eq:llr}
+\end{equation}
+and a logistic-regression score is the LLR under a Gaussian-feature linear model
+--- what the companion code fits over
+$x=(X^2_{\text{phase}},\ \text{frac frame-adjacent},\ H,\ \mathrm{CV})$. On
+held-out players:
+\begin{lstlisting}[style=out]
+POOLED LLR CLASSIFIER  (mimic=off)
+    chi2_phase             +2.831
+    frac_frame_adjacent    +2.533
+    action_entropy         -1.105
+    lap_CV                 -0.878
+held-out ROC AUC = 1.0000   accuracy@0.5 = 1.000
+\end{lstlisting}
+
+\section{Evasion and the detectability limit}
+\label{sec:evasion}
+
+Run the experiment with \texttt{--mimic}, where the bot adds sub-frame jitter and
+inflates CV to look human:
+\begin{lstlisting}[style=out]
+POOLED LLR CLASSIFIER  (mimic=ON)
+    chi2_phase             -0.083     <- D1 NEUTRALIZED
+    frac_frame_adjacent    +4.619     <- now carries the decision
+    action_entropy         -2.101
+    lap_CV                 -0.267
+held-out ROC AUC = 1.0000
+\end{lstlisting}
+Phase dithering kills D1 (weight $\to 0$, as theory predicts), but the classifier
+re-weights onto frame-adjacent intervals and AUC stays at $1.0$. The reason is
+structural: mimicking human timing requires emitting intervals \emph{wider} than
+the optimal plan, which changes the trajectory and costs time --- a Pareto wall
+between \emph{looking human} and \emph{being world-record fast}.
+
+\begin{theorem}[Evasion vs.\ optimality, informally]
+Let $P_0,P_1$ be the human and (disguised) bot distributions over observable
+input features. By the Chernoff--Stein lemma, the number of runs $n$ needed to
+separate $H_0,H_1$ at type-II error $\alpha$ (fixed type-I) satisfies
+\begin{equation}
+n \;\gtrsim\; \frac{1}{\KL(P_1\Vert P_0)} \log\frac{1}{\alpha}.
+\end{equation}
+Evasion seeks $\KL(P_1\Vert P_0)\to 0$. A \emph{world-record} bot cannot: WR
+times force low-CV, frame-tight inputs that keep $\KL$ bounded away from $0$, so
+$n$ stays small (a few runs suffice). A bot willing to discard the record can
+shrink $\KL$ arbitrarily and become undetectable from timing alone.
+\end{theorem}
+\noindent\textbf{Corollary (the project's tension).} The more superhuman the
+time, the easier the bot is to catch.
+
+\section{Other server-side signals (beyond the trace)}
+
+A real anti-cheat also has cheap side channels that raise $\KL$ in directions a
+bot cannot flatten: (i) \emph{holistic line plausibility} --- trajectories
+optimal to sub-frame tolerance on \emph{every} corner; (ii) \emph{client
+integrity} --- headless clients, missing render-loop/mouse-move entropy, replays
+without a live session; (iii) \emph{rate \& novelty} --- a flood of WR-grade
+times via a sequential probability ratio test (SPRT) over the submission stream;
+(iv) \emph{cross-player collision} --- byte-identical or trivially perturbed
+traces across accounts.
+
+\section{The decision pipeline}
+
+\begin{center}
+\fbox{\parbox{0.92\textwidth}{\ttfamily\footnotesize
+submission (claimed time + input trace u\_0:K)\\
+\hspace*{2em}$\downarrow$\\
+PART I -- VERIFICATION (exact, P=1):\ re-simulate \^{}T = T(u\_0:K) with F;\\
+\hspace*{2em}reject if \^{}T $\neq$ T\_claimed or state illegal\\
+\hspace*{2em}$\downarrow$\ legal, re-simulatable run\\
+PART II -- DETECTION (statistical):\\
+\hspace*{2em}D1 sub-frame phase $\chi^2$ vs U[0,1)\\
+\hspace*{2em}D2 interval law: KS / frac frame-adjacent\\
+\hspace*{2em}D3 cross-run CV \quad D4 action entropy\\
+\hspace*{2em}pool $\to$ LLR $\Lambda$(x) $\gtrless\ \eta\ \to$ human / bot\\
+\hspace*{2em}+ side channels, SPRT over history
+}}
+\end{center}
+
+\noindent\textbf{Verification is a proof; detection is a likelihood ratio.}
+Conflating them is the most common mistake in ``how does the game catch bots''
+discussions.
+
+\section{Reproducing the results}
+
+\begin{lstlisting}[style=out]
+cd polytrack-ai/docs
+python bot_detection.py            # tables in Sec. 5-7
+python bot_detection.py --mimic    # the evasion result, Sec. 9
+python bot_detection.py --plot     # feature histograms (needs matplotlib)
+\end{lstlisting}
+Only NumPy is required; the chi-square, KS, and incomplete-gamma routines are
+implemented from scratch in the companion file (no SciPy dependency).
+
+\section{Limitations}
+
+Part~II is a \emph{model} of a detector, validated on \emph{synthetic}
+generators, not on PolyTrack's unpublished server logic or on captured traces.
+If real human input is grid-aligned (e.g.\ a $60$\,Hz input poll quantizing
+events), D1's power drops and weight shifts to D2 --- precisely the robustness the
+\texttt{--mimic} experiment shows. The AUC of $1.0$ reflects well-separated
+synthetic classes; read it as ``these features are jointly informative,'' not a
+real-world catch rate. The honest takeaway holds regardless: a verifiable run is
+easy; a verifiable run that is statistically indistinguishable from a human
+\emph{and} still a world record is provably hard.
+
+\end{document}

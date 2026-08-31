@@ -1,0 +1,16 @@
+{
+  "id": "run-mtdu3r4y",
+  "mode": "fresh",
+  "track": "constants.json",
+  "startedAt": "2026-08-29T03:42:01.763Z",
+  "resumedAt": null,
+  "population": 24,
+  "workers": 3,
+  "maxFrames": 16000,
+  "lastGeneration": 3,
+  "status": "running",
+  "lastUpdatedAt": "2026-08-29T03:47:41.227Z",
+  "bestReward": 2771.935386312664,
+  "bestCheckpoint": 1,
+  "bestFinishSeconds": null
+}

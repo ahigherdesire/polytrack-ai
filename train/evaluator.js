@@ -26,6 +26,8 @@ const REWARD = {
   stuckFrames: 700,      // end the run after this many frames of no progress while
                          //   nearly stopped (saves time on dead policies).
   stuckSpeed: 8,         // "nearly stopped" threshold, km/h.
+  noProgressFrames: 2500, // moving away from the target is also a failed attempt;
+                          // end it early so useful exploration gets more samples.
   offTrackPenalty: 20000, // penalty when the car leaves the driveable mesh / hits
                           //   a wall shortcut area.
   offTrackGraceFrames: 25, // allow tiny sensor/mesh mismatches before ending.
@@ -122,7 +124,13 @@ function makeEvaluate(sim, cps, start, occ, guide = null) {
       if (record) actions.push(a);
       if (!s) break;
       last = s;
-      if (s.nextCheckpointIndex > maxCp) { maxCp = s.nextCheckpointIndex; stuckFor = 0; }
+      if (s.nextCheckpointIndex > maxCp) {
+        maxCp = s.nextCheckpointIndex;
+        // The next target changes after a checkpoint; its distance is not
+        // comparable to the one we just reached.
+        prevProg = Infinity;
+        stuckFor = 0;
+      }
       const contactCount = Array.isArray(s.wheelContact) ? s.wheelContact.filter(Boolean).length : 4;
       const grounded = contactCount >= 2;
       if (grounded) {
@@ -148,6 +156,7 @@ function makeEvaluate(sim, cps, start, occ, guide = null) {
       if (prog < prevProg - 0.5) { prevProg = prog; stuckFor = 0; } else stuckFor++;
       if (s.finishFrames !== null) { finish = s.finishFrames; break; }
       if (stuckFor > REWARD.stuckFrames && Math.abs(s.speedKmh) < REWARD.stuckSpeed) break;
+      if (stuckFor > REWARD.noProgressFrames) break;
     }
     const distEnd = last ? d3(last.position, tgt(last.nextCheckpointIndex)) : 1e4;
     const guideDistEnd = guidePoints.length && last && guideIdx < guidePoints.length

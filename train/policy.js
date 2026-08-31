@@ -24,8 +24,18 @@ class Policy {
   // Map network outputs to the game's controls.
   act(x) {
     const o = this.forward(x);
-    const up = o[0] > 0.5, down = !up && o[1] > 0.5;
-    return { up, down, left: o[2] > 0.5, right: o[3] > 0.5, reset: false };
+    // Treat each pair as one decision. Independent thresholds allowed a fresh
+    // policy to press left+right at once, cancelling a large part of its early
+    // exploration and making ES spend generations learning to un-cancel itself.
+    const drive = o[0] - o[1];
+    const steer = o[2] - o[3];
+    return {
+      up: drive > 0.08,
+      down: drive < -0.08,
+      left: steer > 0.08,
+      right: steer < -0.08,
+      reset: false,
+    };
   }
 }
 

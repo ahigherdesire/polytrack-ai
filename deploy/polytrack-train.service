@@ -7,7 +7,7 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/polytrack-ai
 # 4 GB Pi (4 cores): 3 workers, population 24. Tune to taste.
-ExecStart=/usr/bin/node train/es_parallel.js 1000000 24 16000 3
+ExecStart=/usr/bin/node train/es_parallel.js 1000000 24 30000 3
 # Dashboard reads this file:
 StandardOutput=append:/home/pi/polytrack-ai/train3.log
 StandardError=append:/home/pi/polytrack-ai/train3.log

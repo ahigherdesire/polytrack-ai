@@ -1,0 +1,18 @@
+{
+  "id": "run-mtduf2mj",
+  "mode": "fresh",
+  "track": "constants.json",
+  "startedAt": "2026-08-29T03:50:49.867Z",
+  "resumedAt": null,
+  "population": 24,
+  "workers": 3,
+  "maxFrames": 30000,
+  "lastGeneration": 0,
+  "status": "running",
+  "lastUpdatedAt": "2026-08-29T03:52:59.365Z",
+  "bestReward": -20113.351816921775,
+  "bestCheckpoint": 0,
+  "evaluationFrames": 10000,
+  "nextEvaluationFrames": 10000,
+  "bestFinishSeconds": null
+}

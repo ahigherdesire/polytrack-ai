@@ -73,13 +73,34 @@ logging out:
 sudo apt-get install -y tmux        # once
 tmux new -s poly
 # inside tmux:
-node train/es_parallel.js 1000000 24 16000 3 > train3.log 2>&1 &
+node train/es_parallel.js 1000000 24 30000 3 > train3.log 2>&1 &
 node train/dashboard.js train3.log 7780
 # detach (leaves it running):  Ctrl-b  then  d        (reattach: tmux attach -t poly)
 ```
 
 > Command shape: `node train/es_parallel.js <generations> <population> <maxFrames> <workers>`
 > On the Pi 5 keep `<workers>` at `3`.
+
+### Start a genuinely new learner
+
+The normal start command resumes the previous saved brain. To make the AI learn
+from a random policy again, use the control panel instead — it keeps a timestamped
+backup, removes the old brain/replay/history, then starts both training and the
+live dashboard in one action:
+
+```bash
+node train/control_panel.js 7790
+```
+
+Open `http://raspberrypi5.local:7790`, choose the track, then click **Start Fresh
+Learning Run** and confirm. The learning dashboard will be available at port 7780.
+
+For a manual fresh start (this removes the current files without making a backup):
+
+```bash
+TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 24 30000 3 --fresh > train-haoyuone.log 2>&1 &
+TRACK=tracks/haoyuone.json node train/dashboard.js train-haoyuone.log 7780
+```
 
 ---
 
@@ -89,8 +110,9 @@ In your PC's browser, open:
 ```
 http://raspberrypi5.local:7780
 ```
-(or `http://<pi-ip>:7780` if the name doesn't resolve). You get live cards
-(generation, best checkpoint, reward, speed), reward/checkpoint charts, and a
+(or `http://<pi-ip>:7780` if the name doesn't resolve). You get a run overview that
+shows whether the policy is starting from scratch, live cards (generation, best
+checkpoint, reward, speed), reward/checkpoint charts, and a
 **top-down track map with the policy's current driving path** — so you can see where
 the car gets stuck. Refreshes every few seconds; leave it open.
 
@@ -153,7 +175,7 @@ the new track:
 ```bash
 sudo systemctl stop polytrack-train polytrack-dashboard      # if using systemd
 cd ~/polytrack-ai
-TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 24 16000 3 > train-haoyuone.log 2>&1 &
+TRACK=tracks/haoyuone.json node train/es_parallel.js 1000000 24 30000 3 > train-haoyuone.log 2>&1 &
 TRACK=tracks/haoyuone.json node train/dashboard.js train-haoyuone.log 7780
 ```
 - Each track keeps its **own** output files: `data/policy.haoyuone.json` and
@@ -285,7 +307,7 @@ arrow key once — the game drives the AI lap itself, frame-perfectly. (Optional
 systemctl status polytrack-train                 # is it training?
 tail -n 5 train3.log                             # latest gens (default track)
 sudo systemctl restart polytrack-train           # apply a reward change
-TRACK=tracks/X.json node train/es_parallel.js 1000000 24 16000 3 > train-X.log 2>&1 &
+TRACK=tracks/X.json node train/es_parallel.js 1000000 24 30000 3 > train-X.log 2>&1 &
 TRACK=tracks/X.json node train/dashboard.js train-X.log 7780
 node sim/test_determinism062.js                  # physics self-test (-> true)
 vcgencmd measure_temp                            # Pi temperature

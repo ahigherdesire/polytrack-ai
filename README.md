@@ -191,7 +191,9 @@ own bit-exact self-test headless → `isDeterminstic = true`.
 - `train/es_parallel.js` — **Evolution Strategies** (OpenAI-ES: antithetic,
   rank-normalized). Each generation perturbs the weights into a population, evaluates
   every candidate in parallel across `worker_threads` (one sim per core), and nudges
-  the weights toward the better-scoring perturbations. Resumes from `data/policy.json`.
+  the weights toward the better-scoring perturbations. Standard launches resume
+  `data/policy.json`; add `--fresh` for a new random policy with no inherited lap
+  or reward record.
 
 ES is used (instead of backprop RL) because the sim is a fast, deterministic black
 box: ES needs no gradients, parallelizes trivially, and optimizes the **whole-lap
@@ -208,8 +210,9 @@ outcome**, so the policy learns to brake into corners on its own.
 
 ### 4. Dashboard — `train/dashboard.js`
 
-A live web UI (default `http://localhost:7780`): generation / best-checkpoint /
-reward / speed cards, best-reward and checkpoint charts, and a **top-down track map
+A live web UI (default `http://localhost:7780`): a fresh-run status overview,
+generation / best-checkpoint / reward / speed cards, best-reward and checkpoint
+charts, and a **top-down track map
 showing the current best policy's actual driving path** (so you can see where it gets
 stuck). It parses the training log and replays `data/policy.json` on demand.
 
@@ -225,7 +228,7 @@ node sim/test_determinism062.js
 node sim/run_car062.js
 
 # train  (generations, population, maxFrames, workers)
-node train/es_parallel.js 4000 78 16000 13
+node train/es_parallel.js 4000 78 30000 13
 
 # watch it  ->  http://localhost:7780
 node train/dashboard.js train3.log 7780

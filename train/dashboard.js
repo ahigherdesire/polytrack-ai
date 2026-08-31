@@ -18,6 +18,7 @@ const TAG = path.basename(TRACK, '.json');
 const BEST_POLICY_FILE = path.join(DATA, TAG === 'constants' ? 'policy.json' : `policy.${TAG}.json`);
 const CURRENT_POLICY_FILE = path.join(DATA, TAG === 'constants' ? 'policy.current.json' : `policy.current.${TAG}.json`);
 const BEST_LAP_FILE = path.join(DATA, TAG === 'constants' ? 'es_lap.json' : `es_lap.${TAG}.json`);
+const RUN_FILE = path.join(DATA, TAG === 'constants' ? 'learning_run.json' : `learning_run.${TAG}.json`);
 const PORT = parseInt(process.argv[3] || '7780', 10);
 
 const LINE = /^gen\s+(\d+)\s+(.+?)\s+\((\d+)s,\s+([\d.]+)\s+gen\/s\)/gm;
@@ -57,6 +58,10 @@ function parseLog() {
     });
   }
   return { history, train };
+}
+
+function readRun() {
+  try { return JSON.parse(fs.readFileSync(RUN_FILE, 'utf8')); } catch { return null; }
 }
 
 function readSystemStats() {
@@ -129,7 +134,10 @@ function readSystemStats() {
     sim.reset();
     const pathPts = []; let last = null, maxCp = 0, finish = null, stuck = 0, prev = Infinity;
     let guideIdx = 0;
-    for (let f = 0; f < 16000; f++) {
+    // Use the current run's horizon so a valid >16 s Summer 1 finish is drawn
+    // all the way to the line instead of being visually truncated on the map.
+    const replayMaxFrames = Math.max(16000, Number(readRun()?.maxFrames) || 16000);
+    for (let f = 0; f < replayMaxFrames; f++) {
       const s0 = last || sim.step({ up: false });
       const idx = s0.nextCheckpointIndex;
       while (guideIdx < guidePoints.length && Math.hypot(s0.position.x - guidePoints[guideIdx].x, s0.position.z - guidePoints[guideIdx].z) <= guideRadius) guideIdx++;
@@ -190,7 +198,7 @@ function readSystemStats() {
 
   const server = http.createServer((req, res) => {
     if (req.url === '/' || req.url.startsWith('/?')) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(HTML); return; }
-    if (req.url === '/api/metrics') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ...parseLog(), nCheckpoints: cps.length, reward: REWARD, system: readSystemStats(), track: path.basename(TRACK), policy: path.basename(BEST_POLICY_FILE), currentPolicy: path.basename(CURRENT_POLICY_FILE), bestLap: path.basename(BEST_LAP_FILE), log: path.basename(LOG) })); return; }
+    if (req.url === '/api/metrics') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ...parseLog(), nCheckpoints: cps.length, reward: REWARD, system: readSystemStats(), run: readRun(), track: path.basename(TRACK), policy: path.basename(BEST_POLICY_FILE), currentPolicy: path.basename(CURRENT_POLICY_FILE), bestLap: path.basename(BEST_LAP_FILE), log: path.basename(LOG) })); return; }
     if (req.url === '/api/track') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(trackMap)); return; }
     if (req.url === '/api/laps') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ current: replayPolicy(CURRENT_POLICY_FILE, 'current'), best: replaySavedLap(BEST_LAP_FILE, BEST_POLICY_FILE) })); return; }
     if (req.url === '/api/lap') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(replayPolicy(BEST_POLICY_FILE, 'best'))); return; }
@@ -199,35 +207,19 @@ function readSystemStats() {
   server.listen(PORT, () => console.log(`dashboard at http://localhost:${PORT}  (log: ${path.basename(LOG)})`));
 })().catch((e) => { console.error(e); process.exit(1); });
 
-const HTML = `<!doctype html><meta charset=utf8><title>PolyTrack AI — Training</title>
+const HTML = `<!doctype html><html lang=en><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><title>PolyTrack AI — Learning Lab</title>
 <style>
-:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;--acc:#3fb950;--acc2:#58a6ff;--warn:#d29922}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
-.wrap{max-width:1760px;margin:0 auto;padding:12px}
-h1{font-size:18px;margin:0 0 2px}.sub{color:var(--mut);font-size:12px;margin-bottom:10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px;margin-bottom:10px}
-.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:8px}
-.card .k{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
-.card .v{font-size:20px;font-weight:600;line-height:1.15;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.settings{margin:10px 0 0}.settings .tag{max-width:100%;white-space:normal}
-.dashboard{display:grid;grid-template-columns:minmax(430px,1.15fr) repeat(3,minmax(210px,1fr));grid-auto-flow:dense;gap:10px;align-items:start}
-.mapcard,.dashboard>.card:first-child{grid-row:span 3}
-.mapstack{display:grid;gap:8px}
-.maplabel{color:var(--mut);font-size:11px;margin-bottom:4px}
-.mapstack canvas{height:clamp(125px,calc((100vh - 370px)/2),235px)}
-.chartcard canvas{height:76px}
-canvas{width:100%;display:block;background:#0a0d12;border-radius:6px}
-.bar{height:10px;background:#21262d;border-radius:5px;overflow:hidden;margin-top:8px}
-.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc2),var(--acc))}
-.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;background:#21262d;color:var(--mut)}
-.live{color:var(--acc)}.dead{color:var(--warn)}
-h2{font-size:12px;color:var(--mut);margin:0 0 6px;font-weight:600}
-@media (max-width:1250px){.dashboard{grid-template-columns:repeat(2,minmax(260px,1fr))}.mapcard,.dashboard>.card:first-child{grid-column:1/-1;grid-row:auto}.chartcard canvas{height:96px}}
-@media (max-width:720px){.wrap{padding:10px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard{grid-template-columns:1fr}.mapcard,.dashboard>.card:first-child{grid-column:auto}.mapstack canvas{height:220px}}
+:root{--bg:#08101d;--card:#101c2d;--card2:#0c1727;--bd:rgba(164,201,255,.15);--fg:#edf5ff;--mut:#91a6c2;--green:#5df0b5;--blue:#72b7ff;--violet:#bd9cff;--orange:#ffc17a;--red:#ff8293}
+*{box-sizing:border-box}body{min-width:320px;margin:0;background:radial-gradient(900px 600px at 6% -15%,#173c76 0,transparent 60%),radial-gradient(760px 500px at 110% 0,#30226b 0,transparent 55%),var(--bg);color:var(--fg);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}body:before{content:"";position:fixed;inset:0;z-index:-1;opacity:.18;background-image:linear-gradient(rgba(148,184,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(148,184,255,.07) 1px,transparent 1px);background-size:36px 36px;mask-image:linear-gradient(to bottom,#000,transparent 72%)}
+.wrap{max-width:1740px;margin:0 auto;padding:24px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid rgba(114,183,255,.55);border-radius:13px;background:linear-gradient(135deg,#226cb9,#7b5be4);box-shadow:0 8px 28px #2366b565;font-weight:900;letter-spacing:-1px}.eyebrow{margin:0;color:var(--blue);font:700 10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.15em}.brand h1{margin:3px 0 0;font-size:22px;letter-spacing:-.04em}.sub{color:var(--mut);font-size:12px;margin-top:2px}.runpill{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--bd);border-radius:999px;background:#0b182aab;color:#c5d8f2;font-size:12px;backdrop-filter:blur(12px)}.dot{width:8px;height:8px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 4px #ffc17a20}.dot.live{background:var(--green);box-shadow:0 0 0 4px #5df0b520}.runmeta{color:var(--mut);padding-left:7px;border-left:1px solid var(--bd)}
+.hero{display:grid;grid-template-columns:minmax(270px,1.35fr) repeat(3,minmax(120px,.5fr));gap:10px;padding:16px;margin-bottom:14px;border:1px solid var(--bd);border-radius:18px;background:linear-gradient(110deg,#12355cbb,#16183dbb);box-shadow:0 16px 45px #00000022}.hero-copy{padding:5px 8px}.hero-copy h2{margin:2px 0 4px;font-size:20px;letter-spacing:-.035em}.hero-copy p{max-width:620px;margin:0;color:#b8c8dd;font-size:13px}.hero-stat{padding:10px 12px;border:1px solid #b6d8ff18;border-radius:12px;background:#0713264d}.hero-stat b{display:block;margin-top:4px;color:var(--fg);font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hero-stat span{color:var(--mut);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.sectionlabel{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;color:var(--mut);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}.sectionlabel:after{content:"";height:1px;flex:1;margin-left:10px;background:var(--bd)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}.card{position:relative;overflow:hidden;background:linear-gradient(145deg,#13233aee,#0d1829ee);border:1px solid var(--bd);border-radius:14px;padding:12px;box-shadow:0 8px 26px #00000016}.card:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:linear-gradient(var(--blue),transparent 65%);opacity:.65}.card .k{color:var(--mut);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em}.card .v{font-size:22px;font-weight:750;letter-spacing:-.04em;line-height:1.15;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.settings{margin:14px 0 0}.settings .tag{max-width:100%;white-space:normal}.dashboard{display:grid;grid-template-columns:minmax(420px,1.15fr) repeat(3,minmax(210px,1fr));grid-auto-flow:dense;gap:10px;align-items:start}.mapcard{grid-row:span 3;padding:14px}.mapstack{display:grid;gap:12px}.maplabel{display:flex;justify-content:space-between;gap:8px;color:#c6d8f0;font-size:11px;font-weight:700;margin:2px 0 6px}.mapstack canvas{height:clamp(135px,calc((100vh - 410px)/2),240px)}.chartcard{min-height:128px}.chartcard h2,.mapcard h2{font-size:11px;color:var(--mut);margin:0 0 8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.chartcard canvas{height:78px}canvas{width:100%;display:block;background:radial-gradient(circle at 50% 0,#142945,#091321);border:1px solid #9cc4ff12;border-radius:9px}.bar{height:7px;background:#06101e;border-radius:999px;overflow:hidden;margin-top:10px}.bar>i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--blue),var(--green));box-shadow:0 0 16px var(--green)}.tag{display:inline-block;padding:3px 7px;border:1px solid #a9caff1c;border-radius:999px;font:10px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;background:#091525;color:#adc1dc}.live{color:var(--green)}.dead{color:var(--orange)}
+@media (max-width:1250px){.dashboard{grid-template-columns:repeat(2,minmax(260px,1fr))}.mapcard{grid-column:1/-1;grid-row:auto}.chartcard canvas{height:96px}}@media (max-width:760px){.wrap{padding:14px}.topbar{align-items:flex-start;flex-direction:column}.runpill{width:100%;justify-content:center}.hero{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-copy{grid-column:1/-1}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard{grid-template-columns:1fr}.mapcard{grid-column:auto}.mapstack canvas{height:220px}}@media (max-width:420px){.hero{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.hero-copy{grid-column:auto}.brand h1{font-size:20px}}
 </style>
 <div class=wrap>
-<h1>🏎️ PolyTrack AI — Evolution Strategies</h1>
-<div class=sub id=sub>connecting…</div>
+<header class=topbar><div class=brand><div class=mark>PT</div><div><p class=eyebrow>LIVE LEARNING LAB</p><h1>PolyTrack AI</h1><div class=sub id=sub>Connecting to the learner…</div></div></div><div class=runpill><i class=dot id=rundot></i><b id=runstate>Starting</b><span class=runmeta id=runclock>—</span></div></header>
+<section class=hero><div class=hero-copy><p class=eyebrow>RUN OVERVIEW</p><h2 id=runheadline>Preparing a new driver</h2><p id=runmessage>The dashboard will fill in as the first simulated laps are evaluated.</p></div><div class=hero-stat><span>Learning mode</span><b id=runmode>—</b></div><div class=hero-stat><span>Run started</span><b id=runstarted>—</b></div><div class=hero-stat><span>Run ID</span><b id=runid>—</b></div></section>
+<div class=sectionlabel>Live performance</div>
 <div class=grid>
 <div class=card><div class=k>Current reward</div><div class=v id=currew>-</div></div>
 <div class=card><div class=k>Mean reward</div><div class=v id=meanrew>-</div></div>
@@ -262,6 +254,14 @@ h2{font-size:12px;color:var(--mut);margin:0 0 6px;font-weight:600}
 const $=id=>document.getElementById(id);
 let track=null;
 async function j(u){const r=await fetch(u);return r.json()}
+function relativeTime(iso){if(!iso)return '—';const d=new Date(iso),s=Math.max(0,Math.round((Date.now()-d)/1000));if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return d.toLocaleDateString();}
+function renderRun(m,h){const r=m.run||{};const hasHistory=h.length>0;const running=hasHistory&&r.status!=='completed';const mode=r.mode==='fresh'?'From scratch':r.mode==='resumed'?'Continuing':'New learner';
+ $('rundot').className='dot '+(running?'live':'');$('runstate').textContent=running?'Learning live':r.status==='completed'?'Run complete':'Waiting for laps';$('runclock').textContent=r.lastUpdatedAt?relativeTime(r.lastUpdatedAt):r.startedAt?relativeTime(r.startedAt):'—';
+ $('runmode').textContent=mode;$('runstarted').textContent=r.startedAt?new Date(r.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'—';$('runid').textContent=r.id||'—';
+ if(r.status==='completed'){$('runheadline').textContent='This learning run is complete';$('runmessage').textContent='Its best policy and replay remain available to inspect or continue.'}
+ else if(r.mode==='fresh'){$('runheadline').textContent=hasHistory?'Learning from a blank slate':'A brand-new driver is warming up';$('runmessage').textContent=hasHistory?'Every chart and path below belongs only to this fresh run—no old policy is being carried forward.':'The policy starts with random weights. The first evaluated generation will appear here shortly.'}
+ else if(hasHistory){$('runheadline').textContent='The driver is exploring the track';$('runmessage').textContent='Watch how the policy earns reward, carries its speed, and turns more checkpoints into a complete lap.'}
+ else {$('runheadline').textContent='Preparing the learning run';$('runmessage').textContent='Waiting for the trainer to write its first generation.'}}
 function drawChart(cv,hist,key,color,max){const x=cv.getContext('2d'),W=cv.width,H=cv.height;x.clearRect(0,0,W,H);if(!hist.length)return;
  const pts=hist.map((h,i)=>({i,v:h[key]})).filter(p=>Number.isFinite(p.v));if(!pts.length)return;
  let mn=Math.min(...pts.map(p=>p.v)),mx=max??Math.max(...pts.map(p=>p.v));if(mx===mn)mx=mn+1;
@@ -288,6 +288,7 @@ function renderSettings(m){const r=m.reward||{},t=m.train||{};const rewardBits=O
 ].filter(Boolean).join('  |  ');}
 async function tick(){try{
  const m=await j('/api/metrics');const h=m.history;if(!track)track=await j('/api/track');
+ renderRun(m,h);
  renderSettings(m);
  const sys=m.system||{};
  $('cputemp').textContent=Number.isFinite(sys.cpuTempC)?sys.cpuTempC.toFixed(1)+'C':'-';
@@ -303,7 +304,7 @@ async function tick(){try{
   $('cp').textContent=c.bestCp+' / '+allCp+' / '+m.nCheckpoints;$('cpbar').style.width=(100*allCp/m.nCheckpoints)+'%';
   $('spd').textContent=c.genPerSec.toFixed(2)+' gen/s';
   const fin=latestFinish;
-  $('sub').innerHTML=(Date.now()/1000-(c._t||0)<999?'<span class=live>● training</span>':'')+' &nbsp; elapsed '+(c.elapsed/60).toFixed(1)+'m &nbsp; '+(fin?'<b style=color:#3fb950>FINISH '+fin.finish.toFixed(3)+'s</b>':'no full lap yet');
+  $('sub').innerHTML='<span class=live>● LIVE</span> &nbsp; generation '+c.gen+' &nbsp; elapsed '+(c.elapsed/60).toFixed(1)+'m &nbsp; '+(fin?'<b style=color:#5df0b5>FASTEST '+fin.finish.toFixed(3)+'s</b>':'exploring for a first full lap');
   drawChart($('chart'),h,'bestReward','#58a6ff');
   drawChart($('currentchart'),h,'currentReward','#3fb950');
   drawChart($('meanchart'),h,'meanReward','#a5d6ff');
@@ -313,6 +314,7 @@ async function tick(){try{
   drawChart($('finishchart'),h,'bestFinish','#f85149');
   drawChart($('cpchart'),h,'bestCp','#d29922',m.nCheckpoints);
   drawChart($('speedchart'),h,'genPerSec','#f78166');}
+ if(!h.length){const r=m.run||{};$('sub').textContent=Number.isFinite(r.currentGeneration)?('Evaluating generation '+r.currentGeneration+' • '+((Number(r.evaluationFrames)||0)/1000).toFixed(0)+'s episode budget'):'Connected — waiting for the first learning generation…';}
  const laps=await j('/api/laps');
  $('currentlapinfo').textContent=lapText(laps.current);
  $('bestlapinfo').textContent=lapText(laps.best);

@@ -137,8 +137,18 @@ class Headless062 {
   static tick() { return new Promise((r) => setImmediate(r)); }
 
   // Wait until the worker has finished async init (physics + embedded wasm).
-  async waitReady(maxTicks = 200) {
-    for (let i = 0; i < maxTicks; i++) await Headless062.tick();
+  // The worker bundle installs its `onmessage` handler only after that async
+  // init completes, so poll for it rather than trusting a fixed tick count —
+  // under heavy concurrency (many workers booting wasm at once) a fixed count
+  // can elapse before the worker is actually ready. A minimum settle plus a
+  // generous cap keeps single-instance behaviour unchanged.
+  async waitReady(maxTicks = 4000) {
+    let i = 0;
+    for (; i < 200; i++) await Headless062.tick();           // minimum settle
+    for (; i < maxTicks; i++) {
+      if (typeof this.ctx.onmessage === 'function' || this._listeners.length) return;
+      await Headless062.tick();
+    }
   }
 
   // ---- High-level single-car driving API (0.6.2) --------------------------
@@ -211,11 +221,22 @@ class Headless062 {
 
   // Snapshot the full car state: wasm heap (physics) + JS-side car counters.
   // Cheap branching for search / TAS without replaying from the start.
-  snapshot() {
+  // Pass a previous snapshot as `into` to reuse its heap buffer — this turns
+  // the 20 MB allocation + copy into a plain copy (~8x cheaper) and keeps GC
+  // pressure flat during search (the MCTS solver relies on this).
+  snapshot(into) {
     const car = this._car();
     const uc = car.userControls;
+    const heapSrc = this.physics.HEAPU8;
+    let heap;
+    if (into && into.heap && into.heap.length === heapSrc.length) {
+      into.heap.set(heapSrc);
+      heap = into.heap;
+    } else {
+      heap = heapSrc.slice();
+    }
     return {
-      heap: this.physics.HEAPU8.slice(),
+      heap,
       frames: car.frames, hasStarted: car.hasStarted, isPaused: car.isPaused,
       uc: { up: uc.up, right: uc.right, down: uc.down, left: uc.left, reset: uc.reset, buffer: uc.buffer.map((b) => ({ ...b })) },
     };
@@ -244,6 +265,36 @@ class Headless062 {
       if (s.finishFrames !== null) { finishFrames = s.finishFrames; break; }
     }
     return { maxCheckpoint, finishFrames, frames, last };
+  }
+
+  // ---- mask-based stepping (for the search solver) ------------------------
+  // mask bits: 1=up, 2=right, 4=down, 8=left, 16=reset. Matches the game's
+  // controlByte order and the reference TAS engine.
+  static maskToControls(mask) {
+    return {
+      up: !!(mask & 1), right: !!(mask & 2), down: !!(mask & 4),
+      left: !!(mask & 8), reset: !!(mask & 16),
+    };
+  }
+
+  stepMask(mask) { return this.step(Headless062.maskToControls(mask)); }
+
+  // Hold `mask` for `n` frames, decoding only the final state. The controls
+  // persist in the worker's userControls, so we set them once and pump n
+  // frames — far cheaper than n separate ControlCar dispatches. The finish
+  // flag latches in the worker, so a finish inside the block is not missed
+  // (finishFrames on the returned state reflects it).
+  stepMaskN(mask, n) {
+    if (n <= 0) return this.step(Headless062.maskToControls(mask));
+    const c = Headless062.maskToControls(mask);
+    let last = null;
+    for (let i = 0; i < n; i++) {
+      const s = this.step(c);
+      if (!s) break;
+      last = s;
+      if (s.finishFrames !== null) break; // stop early on finish
+    }
+    return last;
   }
 
   // Apply controls and advance exactly one frame; return decoded car state.

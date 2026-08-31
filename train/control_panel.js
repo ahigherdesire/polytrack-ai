@@ -17,11 +17,14 @@ const DEFAULT_STATE = {
   track: 'tracks/haoyuone.json',
   generations: 1000000,
   population: 48,
-  maxFrames: 16000,
+  maxFrames: 30000,
   workers: 4,
   dashboardPort: 7780,
   lastBackup: null,
   lastReset: null,
+  lastRun: null,
+  trainingPid: null,
+  dashboardPid: null,
 };
 
 function rel(p) {
@@ -78,6 +81,7 @@ function filesForTrack(track) {
     policy: path.join(DATA, `policy${base}.json`),
     currentPolicy: path.join(DATA, `policy.current${base}.json`),
     lap: path.join(DATA, `es_lap${base}.json`),
+    run: path.join(DATA, `learning_run${base}.json`),
   };
 }
 
@@ -92,7 +96,7 @@ function backupTrackProgress(track, includeLog) {
   const dir = path.join(DATA, `backup-${files.tag}-${stamp()}`);
   fs.mkdirSync(dir, { recursive: true });
   const copied = [];
-  for (const file of [files.policy, files.currentPolicy, files.lap, ...(includeLog ? [files.trainLog] : [])]) {
+  for (const file of [files.policy, files.currentPolicy, files.lap, files.run, ...(includeLog ? [files.trainLog] : [])]) {
     if (!fs.existsSync(file)) continue;
     const dest = path.join(dir, path.basename(file));
     fs.copyFileSync(file, dest);
@@ -197,6 +201,30 @@ async function pkill(pattern) {
   await run('pkill', ['-f', pattern]);
 }
 
+function pidIsRunning(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try { process.kill(Number(pid), 0); return true; } catch { return false; }
+}
+
+async function stopManagedProcess(pattern, stateKey) {
+  const state = loadState();
+  const pid = Number(state[stateKey]);
+  if (pidIsRunning(pid)) {
+    try { process.kill(pid, 'SIGTERM'); } catch { }
+  }
+  // On the Pi, also stop manually launched trainers from an older control-panel
+  // session. Windows has no pgrep/pkill, so the saved PID above is intentional.
+  if (process.platform !== 'win32') await pkill(pattern);
+}
+
+async function stopTraining() {
+  await stopManagedProcess('train/es_parallel.js', 'trainingPid');
+}
+
+async function stopDashboard() {
+  await stopManagedProcess('train/dashboard.js', 'dashboardPid');
+}
+
 function startDetached(script, args, env, logFile, append) {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const out = fs.openSync(logFile, append ? 'a' : 'w');
@@ -220,6 +248,10 @@ async function statePayload() {
     pgrep('train/es_parallel.js'),
     pgrep('train/dashboard.js'),
   ]);
+  const managedTraining = pidIsRunning(state.trainingPid) ? [`${state.trainingPid} (managed)`] : [];
+  const managedDashboard = pidIsRunning(state.dashboardPid) ? [`${state.dashboardPid} (managed)`] : [];
+  const trainingProcesses = [...new Set([...training, ...managedTraining])];
+  const dashboardProcesses = [...new Set([...dashboard, ...managedDashboard])];
   return {
     state,
     tracks,
@@ -229,11 +261,12 @@ async function statePayload() {
       policy: fileInfo(files.policy),
       currentPolicy: fileInfo(files.currentPolicy),
       lap: fileInfo(files.lap),
+      run: fileInfo(files.run),
     },
     backups: listBackups(files.tag),
     lap: readLap(files.lap),
-    training: { running: training.length > 0, processes: training },
-    dashboard: { running: dashboard.length > 0, processes: dashboard, urlPath: `:${state.dashboardPort}` },
+    training: { running: trainingProcesses.length > 0, processes: trainingProcesses },
+    dashboard: { running: dashboardProcesses.length > 0, processes: dashboardProcesses, urlPath: `:${state.dashboardPort}` },
     system: readSystem(),
     logTail: tail(files.trainLog),
   };
@@ -296,15 +329,38 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const next = updateSettings(body);
       const files = filesForTrack(next.track);
-      await pkill('train/es_parallel.js');
+      await stopTraining();
       const pid = startDetached('train/es_parallel.js', [
         String(next.generations), String(next.population), String(next.maxFrames), String(next.workers),
       ], { TRACK: next.track }, files.trainLog, !body.resetLog);
+      saveState({ ...next, trainingPid: pid });
       return sendJson(res, 200, { ok: true, pid, state: await statePayload() });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/run/fresh') {
+      const body = await readBody(req);
+      const next = updateSettings(body);
+      const files = filesForTrack(next.track);
+      await stopTraining();
+      await stopDashboard();
+      let backup = null;
+      if (body.backup !== false) backup = backupTrackProgress(next.track, true);
+      for (const file of [files.policy, files.currentPolicy, files.lap, files.run, files.trainLog]) {
+        try { fs.unlinkSync(file); } catch { }
+      }
+      const trainPid = startDetached('train/es_parallel.js', [
+        String(next.generations), String(next.population), String(next.maxFrames), String(next.workers), '--fresh',
+      ], { TRACK: next.track, FRESH: '1' }, files.trainLog, false);
+      const dashboardPid = startDetached('train/dashboard.js', [
+        rel(files.trainLog), String(next.dashboardPort),
+      ], { TRACK: next.track }, files.dashboardLog, false);
+      saveState({ ...next, trainingPid: trainPid, dashboardPid, lastBackup: backup ? backup.rel : next.lastBackup, lastReset: new Date().toISOString(), lastRun: 'fresh' });
+      return sendJson(res, 200, { ok: true, trainPid, dashboardPid, backup, state: await statePayload() });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/train/stop') {
-      await pkill('train/es_parallel.js');
+      await stopTraining();
+      saveState({ ...loadState(), trainingPid: null });
       return sendJson(res, 200, await statePayload());
     }
 
@@ -312,15 +368,17 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const next = updateSettings(body);
       const files = filesForTrack(next.track);
-      await pkill('train/dashboard.js');
+      await stopDashboard();
       const pid = startDetached('train/dashboard.js', [
         rel(files.trainLog), String(next.dashboardPort),
       ], { TRACK: next.track }, files.dashboardLog, false);
+      saveState({ ...next, dashboardPid: pid });
       return sendJson(res, 200, { ok: true, pid, state: await statePayload() });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/dashboard/stop') {
-      await pkill('train/dashboard.js');
+      await stopDashboard();
+      saveState({ ...loadState(), dashboardPid: null });
       return sendJson(res, 200, await statePayload());
     }
 
@@ -328,18 +386,18 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const next = updateSettings(body);
       if (body.confirm !== true) throw new Error('Reset requires confirm=true');
-      await pkill('train/es_parallel.js');
-      await pkill('train/dashboard.js');
+      await stopTraining();
+      await stopDashboard();
       const files = filesForTrack(next.track);
       let backup = null;
       if (body.backup !== false) backup = backupTrackProgress(next.track, !!body.resetLog);
-      for (const file of [files.policy, files.currentPolicy, files.lap]) {
+      for (const file of [files.policy, files.currentPolicy, files.lap, files.run]) {
         try { fs.unlinkSync(file); } catch { }
       }
       if (body.resetLog) {
         try { fs.unlinkSync(files.trainLog); } catch { }
       }
-      saveState({ ...next, lastBackup: backup ? backup.rel : next.lastBackup, lastReset: new Date().toISOString() });
+      saveState({ ...next, trainingPid: null, dashboardPid: null, lastBackup: backup ? backup.rel : next.lastBackup, lastReset: new Date().toISOString() });
       return sendJson(res, 200, { ok: true, backup, state: await statePayload() });
     }
 
@@ -405,7 +463,9 @@ a{color:#8ec5ff;text-decoration:none}.hint{color:var(--mut);font-size:12px}.pill
           </div>
           <label>Max frames<input id=maxFrames type=number min=1000 step=1000></label>
           <label>Dashboard port<input id=dashboardPort type=number min=1024 step=1></label>
-          <label class=check><input id=resetLog type=checkbox> Clear training log on start/reset</label>
+          <button class="btn good" id=startFresh>Start Fresh Learning Run</button>
+          <div class=hint>This makes a timestamped backup, clears the selected track's old brain, lap and history, then starts a brand-new random policy and its dashboard.</div>
+          <label class=check><input id=resetLog type=checkbox> Clear training log when continuing/resetting</label>
           <label class=check><input id=backupReset type=checkbox checked> Back up progress before reset</label>
           <div class=actions>
             <button class="btn good" id=startTrain>Start Training</button>
@@ -496,6 +556,7 @@ async function refresh(){try{render(await api('/api/state'))}catch(e){$('log').t
 async function post(path, extra={}){try{render(await api(path,{...settings(),...extra}))}catch(e){alert(e.message); await refresh()}}
 $('loadTrack').onclick=()=>post('/api/dashboard/start');
 $('track').onchange=()=>post('/api/select-track');
+$('startFresh').onclick=()=>{const msg='Start a NEW learning run for '+$('track').value+'?\n\nThe old brain, replay and history will be backed up '+($('backupReset').checked?'before clearing.':'is NOT being backed up.');if(confirm(msg))post('/api/run/fresh',{backup:$('backupReset').checked})};
 $('startTrain').onclick=()=>post('/api/train/start');
 $('stopTrain').onclick=()=>post('/api/train/stop');
 $('startDash').onclick=()=>post('/api/dashboard/start');
