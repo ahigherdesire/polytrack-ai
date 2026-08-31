@@ -163,7 +163,7 @@ You only need this if `data/constants.json` is **missing**. To rebuild it once:
 3. Move the downloaded **`constants.json`** into the project's **`data/`** folder,
    replacing nothing else.
 
-> Tip: the track's **trackId** (needed to fetch a world record in §1.4) appears in the
+> Tip: the track's **trackId** (needed to fetch a world record in §1.5) appears in the
 > browser's **Network** tab on the `leaderboard` request, or via the browser grabber
 > in [HOWTO Step 2](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-2--get-the-lap-you-want-to-copy).
 
