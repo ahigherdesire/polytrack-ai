@@ -27,6 +27,13 @@ The whole flow is four stages:
 
 ## 1. Getting track data
 
+> **New to this?** The friendly, copy-paste, **no-coding walkthrough** for capturing
+> a track, grabbing a lap, and playing it back lives in
+> **[`HOWTO-copy-optimize-play.md`](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md)**
+> — start there if you just want the exact clicks. It also covers the shared **car /
+> physics data** (`data/constants.json`) in its **Appendix A**. This section is the
+> training-focused summary of the same steps.
+
 ### 1.1 What the solver actually needs
 
 A **track file** is a JSON object with two fields, exactly as the game sends them
@@ -58,33 +65,30 @@ You get a track file one of two ways.
 ### 1.2 Method A — capture a track from the real game (browser, once per track)
 
 The car's spawn data only exists inside the running game, so grab it from there.
+Full clicks are in **[HOWTO Step 1](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-1--capture-the-track-browser)**;
+the short version:
 
-1. Open **https://app-polytrack.kodub.com/0.6.2/** in Chrome/Edge. Confirm the title
-   screen says **0.6.2**.
-2. Open DevTools (**F12**) → **Console**. The game runs in an `<iframe>`, so in the
-   console's top-left **context dropdown**, select the `app-polytrack.kodub.com`
-   frame before pasting (otherwise you hook the wrong `Worker`).
-3. Paste the contents of **`bridge/capture_payloads.js`** and press Enter. It patches
-   `Worker.postMessage` and prints `hooked … now (re)load a track`.
-4. **Load and start the target track** so the car spawns at the line. If it was
-   already loaded before you pasted, press **R** to restart — that re-fires the
-   `Init` + `CreateCar` messages.
-5. In the console, dump it:
-   ```js
-   __polyDump("mytrack")     // downloads mytrack.json ; logs "CreateCar: true"
+1. Open **https://app-polytrack.kodub.com/0.6.2/** (Chrome/Edge), **F12** → **Console**.
+   The game runs in an `<iframe>` — pick the `app-polytrack.kodub.com` frame in the
+   console's context dropdown before pasting.
+2. Paste **`bridge/capture_payloads.js`** (or the one-liner from the HOWTO) → it hooks
+   `Worker.postMessage`.
+3. **Enter the target track** so the car spawns (press **R** to restart if it was
+   already open — that re-fires the `Init` + `CreateCar` messages).
+4. Run `__polyDump("mytrack")` → downloads `mytrack.json`; you want `CreateCar: true`.
+5. Turn the download into a trainable track file (`make-track.js` borrows the shared
+   `Init` automatically if the capture only had `createCar`):
+   ```bash
+   node train/make-track.js "C:/Users/<you>/Downloads/mytrack.json" mytrack
+   #   -> wrote tracks/mytrack.json   (solve it with TRACK=tracks/mytrack.json)
    ```
-   You want `CreateCar: true` (and ideally `Init: true`).
-6. Turn the download into a trainable track file:
-   - **If it has both `init` and `createCar`** → it's complete; move it into `tracks/`.
-   - **If it only has `createCar`** → complete it with `make-track.js`, which borrows
-     the shared `Init` from `data/constants.json` and writes into `tracks/`:
-     ```bash
-     node train/make-track.js "C:/Users/<you>/Downloads/mytrack.json" mytrack
-     #   -> wrote tracks/mytrack.json   (ready to solve with TRACK=tracks/mytrack.json)
-     ```
 
-> Community track? Its **trackId** shows up in the Network tab on the `leaderboard`
-> request when you open that track's leaderboard — you'll want it for §1.4.
+> **Car / physics data.** The shared `Init` — the car and physics constants, identical
+> for every 0.6.2 track — lives in `data/constants.json` and is already captured. If
+> it's ever missing, re-create it once via **HOWTO Appendix A**.
+>
+> Community track? Its **trackId** (for §1.4) shows up in the Network tab on the
+> `leaderboard` request, or via the browser grabber in the HOWTO.
 
 ### 1.3 Method B — use the preloaded track
 
@@ -103,9 +107,10 @@ node bridge/fetch-recording.js 5803f9e963625804e3de3246d043dc7dde847aa32e991f7f7
 ```
 
 The fetched recording is verified to reproduce its exact finish frame in our headless
-sim, so you can replay or analyse any record locally. To copy laps from the browser
-instead (e.g. to read a track's `trackId`), see `bridge/grab-recording.js` +
-`bridge/decode-recording.js` in `bridge/README.md`.
+sim, so you can replay or analyse any record locally. For the browser-grab route
+(and finding a `trackId`), see
+**[HOWTO Step 2](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-2--get-the-lap-you-want-to-copy)**
+or `bridge/README.md`.
 
 ---
 
@@ -192,7 +197,9 @@ node bridge/verify-recording.js data/es_lap.json data/constants.json
 3. Optional: put it on the leaderboard with **`bridge/submit-recording.js`**.
 
 > Why the recording, not keyboard replay: it's applied by **frame number inside the
-> game** (1000 fps), so there's zero timing drift. See `bridge/README.md`.
+> game** (1000 fps), so there's zero timing drift. The click-by-click play steps are
+> in **[HOWTO Step 4](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-4--play-it-out-in-the-game-️)**;
+> see also `bridge/README.md`.
 
 **Squeeze it faster (TAS):** `bridge/optimize-lap.js` hill-climbs an existing lap,
 keeping only verified-faster, still-finishing edits:
