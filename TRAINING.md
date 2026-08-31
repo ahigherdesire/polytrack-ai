@@ -64,38 +64,115 @@ You get a track file one of two ways.
 
 ### 1.2 Method A — capture a track from the real game (browser, once per track)
 
-The car's spawn data only exists inside the running game, so grab it from there.
-Full clicks are in **[HOWTO Step 1](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-1--capture-the-track-browser)**;
-the short version:
+The car's spawn data only exists inside the running game, so we grab it from there.
+Follow this exactly — no coding needed, just copy-paste. (A friendlier version with
+pictures-in-words is [HOWTO Step 1](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-1--capture-the-track-browser).)
 
-1. Open **https://app-polytrack.kodub.com/0.6.2/** (Chrome/Edge), **F12** → **Console**.
-   The game runs in an `<iframe>` — pick the `app-polytrack.kodub.com` frame in the
-   console's context dropdown before pasting.
-2. Paste **`bridge/capture_payloads.js`** (or the one-liner from the HOWTO) → it hooks
-   `Worker.postMessage`.
-3. **Enter the target track** so the car spawns (press **R** to restart if it was
-   already open — that re-fires the `Init` + `CreateCar` messages).
-4. Run `__polyDump("mytrack")` → downloads `mytrack.json`; you want `CreateCar: true`.
-5. Turn the download into a trainable track file (`make-track.js` borrows the shared
-   `Init` automatically if the capture only had `createCar`):
-   ```bash
-   node train/make-track.js "C:/Users/<you>/Downloads/mytrack.json" mytrack
-   #   -> wrote tracks/mytrack.json   (solve it with TRACK=tracks/mytrack.json)
-   ```
+**Step 1 — Open the game.**
+Go to **https://app-polytrack.kodub.com/0.6.2/** in **Chrome or Edge**. Check the
+title screen says **0.6.2** in the corner.
 
-> **Car / physics data.** The shared `Init` — the car and physics constants, identical
-> for every 0.6.2 track — lives in `data/constants.json` and is already captured. If
-> it's ever missing, re-create it once via **HOWTO Appendix A**.
->
-> Community track? Its **trackId** (for §1.4) shows up in the Network tab on the
-> `leaderboard` request, or via the browser grabber in the HOWTO.
+**Step 2 — Open the developer Console.**
+Press **F12** on your keyboard. A panel opens. Click the tab named **Console**.
+(That's the box where you can type/paste code.)
 
-### 1.3 Method B — use the preloaded track
+> The game runs inside an embedded frame. Above the console's typing area there is a
+> small dropdown that usually says `top`. Click it and choose the entry that contains
+> **`app-polytrack.kodub.com`**. If you don't see such an entry, `top` is fine — just
+> continue. (This makes sure the next step hooks the right window.)
+
+**Step 3 — Paste the capture code.**
+Click into the Console, paste this **entire block**, and press **Enter**:
+```js
+(() => {
+  const captured = { version: location.href, init: null, createCar: null, all: [] };
+  const safe = (o) => JSON.parse(JSON.stringify(o, (k, v) =>
+    ArrayBuffer.isView(v) ? Array.from(v) : v));
+  function record(msg) {
+    try {
+      if (msg && typeof msg === 'object' && 'messageType' in msg) {
+        if (msg.messageType === 0) captured.init = safe(msg);      // Init (track geometry)
+        if (msg.messageType === 3) captured.createCar = safe(msg); // CreateCar (this track)
+        captured.all.push(msg.messageType);
+      }
+    } catch (e) {}
+  }
+  const proto = Worker.prototype;
+  if (!proto.__polyHooked) {
+    const orig = proto.postMessage;
+    proto.postMessage = function (msg, transfer) { record(msg); return orig.call(this, msg, transfer); };
+    proto.__polyHooked = true;
+  }
+  window.__polyCaptured = captured;
+  window.__polyDump = function (name = 'track') {
+    if (!captured.createCar) console.warn('No CreateCar yet — (re)load the track first. Seen:', captured.all);
+    const blob = new Blob([JSON.stringify(captured)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name + '.json'; a.click();
+    console.log('Dumped. Init:', !!captured.init, 'CreateCar:', !!captured.createCar, 'types seen:', captured.all);
+  };
+  console.log('[capture] ready — now enter your track, then run  __polyDump("mytrack")');
+})();
+```
+It should print **`[capture] ready …`**. If it prints an error instead, make sure you
+copied the whole block (from the first `(` to the last `)`), and try again.
+
+**Step 4 — Load the track.**
+In the game, click **Play** and **enter the track you want** so the car appears at the
+start line. If the track was already open before Step 3, press **R** to restart it —
+that makes the game re-send the data we need.
+
+**Step 5 — Download the track file.**
+Back in the Console, type this (replace `mytrack` with a short name, no spaces — use
+the **same** name every time for this track) and press **Enter**:
+```js
+__polyDump("mytrack")
+```
+- It downloads **`mytrack.json`** to your Downloads folder.
+- The console should say **`CreateCar: true`**. ✅
+- If it says **`CreateCar: false`**, you didn't load the track yet — press **R** in the
+  game, wait for the car to appear, then run `__polyDump("mytrack")` again.
+
+**Step 6 — Turn the download into a track file (in the terminal).**
+In your terminal, in the project folder, run (fix the path to point at the file you
+just downloaded):
+```bash
+node train/make-track.js "C:/Users/<you>/Downloads/mytrack.json" mytrack
+```
+✅ Success looks like: **`wrote tracks/mytrack.json`**. That file is now ready to solve
+with `TRACK=tracks/mytrack.json` (see §2). `make-track.js` automatically fills in the
+shared car/physics data if your capture didn't include it.
+
+Done — you never have to repeat this for that track again.
+
+---
+
+### 1.3 Getting the car / physics data (`data/constants.json`)
+
+`data/constants.json` holds the **shared car + physics constants** — they're the
+**same for every 0.6.2 track**, and this file is **already in the project**, so
+normally you do nothing here.
+
+You only need this if `data/constants.json` is **missing**. To rebuild it once:
+
+1. Do **§1.2 Steps 1–4** on *any* track, but paste the capture code **the instant the
+   page finishes loading** (before you click into a track). This is what lets it catch
+   the one-time `Init` message that carries the car/physics constants.
+2. Run `__polyDump("constants")` and check the console says **`Init: true`**. (If it
+   says `Init: false`, reload the page and try again, pasting the code sooner.)
+3. Move the downloaded **`constants.json`** into the project's **`data/`** folder,
+   replacing nothing else.
+
+> Tip: the track's **trackId** (needed to fetch a world record in §1.4) appears in the
+> browser's **Network** tab on the `leaderboard` request, or via the browser grabber
+> in [HOWTO Step 2](https://github.com/ahigherdesire/polytrack-ai/blob/master/HOWTO-copy-optimize-play.md#step-2--get-the-lap-you-want-to-copy).
+
+### 1.4 Method B — use the preloaded track
 
 Summer 1 is already captured at `data/constants.json`. Running the solver with no
 `TRACK=` set solves it. Nothing to capture.
 
-### 1.4 Fetch a real world-record lap (for benchmarking / analysis)
+### 1.5 Fetch a real world-record lap (for benchmarking / analysis)
 
 You don't need this to train, but it's how you compare the AI's lap to the best
 humans, and it works with **no browser** — straight off the game's public API:
