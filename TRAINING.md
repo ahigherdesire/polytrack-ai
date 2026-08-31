@@ -1,32 +1,115 @@
-# Training / solving a lap
+# Training / solving a lap — end to end
 
 The AI finds a lap with a **windowed root-parallel MCTS solver** that searches the
-real game physics (this replaced the old Evolution-Strategies trainer, which
-stalled — see `train/es_parallel.js`, kept only for reference). It drives on a
-geodesic **guidance field** built from the track's road surfaces, locks the moves
-it's confident about, slides the window forward, and repeats until the car
-finishes.
+real game physics (it replaced the stalled Evolution-Strategies trainer,
+`train/es_parallel.js`, kept only for reference). It drives on a geodesic
+**guidance field** built from the track's road surfaces, locks the moves it's
+confident about, slides the window forward, and repeats until the car finishes.
 
-> TL;DR
+The whole flow is four stages:
+
+```
+ (1) GET TRACK DATA  ──►  (2) SOLVE  ──►  (3) VERIFY  ──►  (4) PLAY / SUBMIT
+  capture from game       run the MCTS     game's own       watch it drive /
+  → tracks/<t>.json       solver           Verify check     put on leaderboard
+                          → data/es_lap.json
+```
+
+> Fast path (Summer 1 is already captured at `data/constants.json`):
 > ```bash
-> node train/solve_parallel.js 7200 100 12      # <budgetSeconds> <sims/worker> <workers>
-> tail -f solve.log                              # watch it   (redirect output yourself)
-> cat data/solve_run.json                        # machine-readable status
+> node train/solve_parallel.js 7200 100 12  > solve.log 2>&1 &   # solve
+> tail -f solve.log                                              # watch
+> cat data/solve_run.json                                        # status
 > # result lap → data/es_lap.json
 > ```
 
 ---
 
-## 1. Prerequisites
+## 1. Getting track data
 
-- Node.js (the sim is bundled; no build step).
-- A **track payload** at `data/constants.json` — the physics/track capture the
-  solver loads. It already holds Summer 1 ("sone"). To solve a different track,
-  capture it into its own JSON and point `TRACK=` at it (below).
-- Cores: the solver spawns one worker thread per `<workers>`. Use
-  **cores − 2** on a desktop; keep it at **3** on the Raspberry Pi 5.
+### 1.1 What the solver actually needs
 
-## 2. Run it
+A **track file** is a JSON object with two fields, exactly as the game sends them
+to its own physics worker:
+
+```jsonc
+{
+  "init":      { "messageType": 0, "trackParts": [ … ], … },  // the track geometry
+  "createCar": { "messageType": 3, "trackData": [ … ], … }    // where the car spawns
+}
+```
+
+- `init` (message type **0**) carries `trackParts` — the placed track pieces. It is
+  **identical for every 0.6.2 track**, so it can be borrowed from an existing capture.
+- `createCar` (message type **3**) is **track-specific** — it encodes the actual
+  layout and the start line. This is the part you must capture per track.
+
+Where these files live:
+
+| Path | What it is |
+|---|---|
+| `data/constants.json` | The **default** track the solver loads (currently Summer 1 / "sone"). |
+| `tracks/<name>.json`  | Any other captured track. Point the solver at it with `TRACK=`. |
+| `data/es_lap.json` / `data/es_lap.<name>.json` | The solver's **output** lap. |
+| `data/grabbed/*.json` | Fetched real player/WR laps (for benchmarking). |
+
+You get a track file one of two ways.
+
+### 1.2 Method A — capture a track from the real game (browser, once per track)
+
+The car's spawn data only exists inside the running game, so grab it from there.
+
+1. Open **https://app-polytrack.kodub.com/0.6.2/** in Chrome/Edge. Confirm the title
+   screen says **0.6.2**.
+2. Open DevTools (**F12**) → **Console**. The game runs in an `<iframe>`, so in the
+   console's top-left **context dropdown**, select the `app-polytrack.kodub.com`
+   frame before pasting (otherwise you hook the wrong `Worker`).
+3. Paste the contents of **`bridge/capture_payloads.js`** and press Enter. It patches
+   `Worker.postMessage` and prints `hooked … now (re)load a track`.
+4. **Load and start the target track** so the car spawns at the line. If it was
+   already loaded before you pasted, press **R** to restart — that re-fires the
+   `Init` + `CreateCar` messages.
+5. In the console, dump it:
+   ```js
+   __polyDump("mytrack")     // downloads mytrack.json ; logs "CreateCar: true"
+   ```
+   You want `CreateCar: true` (and ideally `Init: true`).
+6. Turn the download into a trainable track file:
+   - **If it has both `init` and `createCar`** → it's complete; move it into `tracks/`.
+   - **If it only has `createCar`** → complete it with `make-track.js`, which borrows
+     the shared `Init` from `data/constants.json` and writes into `tracks/`:
+     ```bash
+     node train/make-track.js "C:/Users/<you>/Downloads/mytrack.json" mytrack
+     #   -> wrote tracks/mytrack.json   (ready to solve with TRACK=tracks/mytrack.json)
+     ```
+
+> Community track? Its **trackId** shows up in the Network tab on the `leaderboard`
+> request when you open that track's leaderboard — you'll want it for §1.4.
+
+### 1.3 Method B — use the preloaded track
+
+Summer 1 is already captured at `data/constants.json`. Running the solver with no
+`TRACK=` set solves it. Nothing to capture.
+
+### 1.4 Fetch a real world-record lap (for benchmarking / analysis)
+
+You don't need this to train, but it's how you compare the AI's lap to the best
+humans, and it works with **no browser** — straight off the game's public API:
+
+```bash
+# <trackId> <rank>  (rank 1 = world record). Summer 1's trackId shown:
+node bridge/fetch-recording.js 5803f9e963625804e3de3246d043dc7dde847aa32e991f7f7326b0453f1fa038 1 data/grabbed/summer1_wr.json
+#   -> youngfella  22.262s (rank 1/…) ; out.json holds the exact per-frame inputs
+```
+
+The fetched recording is verified to reproduce its exact finish frame in our headless
+sim, so you can replay or analyse any record locally. To copy laps from the browser
+instead (e.g. to read a track's `trackId`), see `bridge/grab-recording.js` +
+`bridge/decode-recording.js` in `bridge/README.md`.
+
+---
+
+## 2. Solve (run the search)
 
 ```bash
 # from the repo root.  args:  <budgetSeconds> <simsPerWorker> <workers>
@@ -37,18 +120,26 @@ node train/solve_parallel.js 7200 100 12  > solve.log 2>&1 &
 |---|---|---|
 | `budgetSeconds` | wall-clock cap; stops and writes the best lap when hit | `7200` (2 h) |
 | `simsPerWorker` | MCTS rollouts each worker runs per window | `100` |
-| `workers` | worker threads (root-parallel; more = stronger consensus, **not** faster wall-clock) | cores − 2 |
+| `workers` | worker threads (root-parallel; more = stronger consensus, **not** faster wall-clock) | cores − 2 (Pi 5: **3**) |
 
-Effective search per window = `simsPerWorker × workers`. Wall-time per window is
-set by **one** worker's `simsPerWorker` (workers run in parallel), so lowering
-`simsPerWorker` makes each window — and each stuck/retry cycle — faster, at the
-cost of shakier locks.
+Effective search per window = `simsPerWorker × workers`. Wall-time per window is set
+by **one** worker's `simsPerWorker` (workers run in parallel), so lowering
+`simsPerWorker` makes each window — and each stuck/retry cycle — faster, at the cost
+of shakier locks.
 
-Solve a different track:
+**Solve a captured track:**
 ```bash
-TRACK=tracks/mytrack.json node train/solve_parallel.js 7200 100 12 > solve.log 2>&1 &
+TRACK=tracks/mytrack.json  node train/solve_parallel.js 7200 100 12 > solve.log 2>&1 &
+#   output then lands in  data/es_lap.mytrack.json  /  data/solve_run.mytrack.json
 ```
-Output then lands in `data/es_lap.<tag>.json` / `data/solve_run.<tag>.json`.
+
+**Seeding (on by default):** before searching, the guidance rollout policy drives the
+easy opening open-loop and hands the reliably-driven prefix to MCTS, so search starts
+near the first hard feature instead of re-deriving the launch.
+- Disable: `SEED=0 node train/solve_parallel.js …`
+- Cap how far greedy may drive: `SEED_FRAMES=20000 …` (default `30000`).
+
+---
 
 ## 3. Watch progress
 
@@ -59,79 +150,112 @@ Each logged window prints, e.g.:
 ```
 w45 t=463s locked=8.42s cp=1 speed=195 pos=(30,0,-4) wheels=4
 ```
-- `locked` — seconds of lap committed so far (this is the real progress metric).
-- `cp` — `nextCheckpointIndex`; goes up each time a checkpoint is crossed.
-- `pos` / `speed` / `wheels` — car state (wheels = 0 means airborne).
-- `STUCK — rewinding …` — hit a hard spot; it rewinds and retries with a fresh
-  seed (up to `maxRewinds`).
+- `locked` — seconds of lap committed so far (the real progress metric).
+- `cp` — `nextCheckpointIndex`; increments each time a checkpoint is crossed.
+- `pos` / `speed` / `wheels` — car state (`wheels=0` = airborne).
+- `STUCK — rewinding …` — hit a hard spot; it rewinds and retries with a fresh seed.
 
 `data/solve_run.json` mirrors this as JSON: `{ cp, lockedS, bestFinishS, status }`.
+Set `DUMP_LOCKED=1` to also write `data/locked_dump.json` every few windows for
+frame-by-frame replay (see §7).
+
+---
 
 ## 4. Get the result
 
-When it finishes (or the budget expires) it writes **`data/es_lap.json`**:
+When it finishes (or the budget expires) it writes **`data/es_lap.json`**
+(`data/es_lap.<track>.json` for a `TRACK=` run):
 ```jsonc
 { "kind": "fastestFinish", "finishSeconds": 23.4, "frames": 23400, "actions": [ … ] }
 ```
-`kind: "fastestFinish"` = a real finishing lap; `bestRewardFallback` = best partial
-(no finish yet). This is the same format the recording bridge / play / verify tools
-consume, so `data/es_lap.json` is ready to replay or submit.
+- `kind: "fastestFinish"` → a real finishing lap.
+- `kind: "bestRewardFallback"` → best partial so far (no finish yet).
 
-## 5. Seeding (on by default)
+`actions` is the per-frame input list — the same format the bridge tools consume.
 
-Before searching, the guidance **rollout policy drives the easy opening
-open-loop** and hands the reliably-driven prefix to MCTS, so search starts near
-the first hard feature instead of wasting minutes re-deriving the launch.
-- Disable: `SEED=0 node train/solve_parallel.js …`
-- Cap how far greedy may drive: `SEED_FRAMES=20000 …` (default 30000).
+---
+
+## 5. Verify & play the lap in the real game
+
+The output lap is proven the same way the leaderboard proves a submission — with the
+game's **own `Verify`** — then you can watch it drive the real track.
+
+```bash
+# 1. build + validate the recording (frame-exact finish, game's own check)
+node bridge/verify-recording.js data/es_lap.json data/constants.json
+#    -> ✓ VALID recording … -> data/es_lap.recording.txt
+```
+2. Open the game (`https://app-polytrack.kodub.com/0.6.2/`), paste the recording
+   string into `AI_RECORDING` in **`bridge/play-recording.js`**, paste that whole
+   script into the console **before** entering the track, then enter and tap an arrow
+   key once — the car drives the AI lap by itself, frame-perfectly.
+3. Optional: put it on the leaderboard with **`bridge/submit-recording.js`**.
+
+> Why the recording, not keyboard replay: it's applied by **frame number inside the
+> game** (1000 fps), so there's zero timing drift. See `bridge/README.md`.
+
+**Squeeze it faster (TAS):** `bridge/optimize-lap.js` hill-climbs an existing lap,
+keeping only verified-faster, still-finishing edits:
+```bash
+node bridge/optimize-lap.js data/es_lap.json data/constants.json 4000 data/es_lap.json
+```
+(The lap and the track must match — a recording is button presses for **one** track.)
+
+---
 
 ## 6. Tuning knobs
 
 **`train/solve_parallel.js` → `OPTS`** (top of file):
 - `windowMs` / `lockMs` — lookahead vs. how much to commit per window.
 - `minVisitFrac` — lock-confidence threshold (rewind is the safety net).
-- `stuckWindows` / `maxRewinds` — how quickly to give up on a spot and how many
+- `stuckWindows` / `maxRewinds` — how fast to give up on a spot, and how many
   fresh-seed retries to spend on it.
 - `decimationMs` — action-block granularity (20 ms = coarse/fast).
 
 **`train/guidance.js`** — the driving field:
 - `buildSpeedCaps()` — curvature, **elevation/descent**, and overhead-clearance
-  speed caps. The descent cap is what lets the car survive the Summer 1 jump;
-  tune its `grade > 0.30 → cap` line if a track flings the car off a drop.
+  speed caps. The descent cap is what lets the car survive the Summer 1 jump; tune
+  its `grade > 0.30 → cap` line if a track flings the car off a drop.
 - Cell filtering skips undrivable **down-facing** faces and shadowed low **floor**
   cells so the field routes on real road only.
-- Change the **reward/score** in `train/mcts_solver.js` `_simulate()`
-  (`finishBonus`, `cpBonus`, `slipWeight`, `overspeedWeight`, …).
 
-## 7. Diagnostics (for when a track gets stuck)
+**`train/mcts_solver.js` → `_simulate()`** — the reward/score
+(`finishBonus`, `cpBonus`, `slipWeight`, `overspeedWeight`, `speedWeight`, …).
 
-All in `train/`, each `node train/<file>.js`:
+---
+
+## 7. Diagnostics (when a track gets stuck)
+
+All in `train/`, run as `node train/<file>.js`:
 - `greedy_drive.js` — drive the guidance policy alone; shows where it stalls.
 - `trap_drive.js` — detailed per-frame state (x,y,z,speed,wheels) through a region.
-- `probe_spot.js` / `route_trace.js` — inspect the field/route/speed-caps at a spot.
-- `replay_locked.js` — replay `data/locked_dump.json` frame-by-frame (run the
-  solver with `DUMP_LOCKED=1` to produce it) to see exactly what the car hits.
+- `probe_spot.js` / `route_trace.js` — inspect the field / route / speed-caps at a spot.
+- `test_guidance.js` — sanity-check the field builds and the potential falls forward.
+- `replay_locked.js` — replay `data/locked_dump.json` (run the solver with
+  `DUMP_LOCKED=1`) frame-by-frame to see exactly what the car hits.
 
-## 8. Fresh start / stopping
+---
 
-- The solver is stateless per run (it rebuilds the field and re-seeds each launch);
+## 8. Stopping / fresh start
+
+- The solver is stateless per run (it rebuilds the field and re-seeds each launch) —
   just re-run the command. To wipe the old ES brain/replay, use
   `node train/control_panel.js 7790` → **Start Fresh Learning Run**.
-- **Stopping on Windows:** `pkill -f solve_parallel` does **not** reliably kill
-  Node. Kill by PID:
+- **Stopping on Windows:** `pkill -f solve_parallel` does **not** reliably kill Node.
+  Kill by PID, or stray solvers keep eating cores and slow every other run:
   ```powershell
   Get-CimInstance Win32_Process -Filter "name='node.exe'" |
     Where-Object { $_.CommandLine -like '*solve_parallel*' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
   ```
-  Stray solvers keep eating cores and slow every other run.
+
+---
 
 ## 9. Known limitation (Summer 1 / sone)
 
-The solver clears checkpoint 0 and the big descent jump, then hits a **physical
-wall at x ≈ −64** where a low surface steps up to the main road — it can't finish
-sone yet. Vertical walls are filtered out of the road mesh, so the geodesic routes
-through them; fixing it needs wall modelling and/or an off-surface penalty in the
-MCTS score, not just field tuning. Details in the project memory
-(`sone-lower-deck-trap`).
+The solver clears checkpoint 0 and the big descent jump, then hits a **physical wall
+at x ≈ −64** where a low surface steps up to the main road — it can't finish sone
+yet. Vertical walls are filtered out of the road mesh, so the geodesic routes through
+them; the fix needs wall modelling and/or an off-surface penalty in the MCTS score,
+not just field tuning. Full write-up in project memory (`sone-lower-deck-trap`).
 ```

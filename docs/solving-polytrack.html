@@ -1,0 +1,471 @@
+<title>Solving PolyTrack</title>
+<meta name="description" content="A technical explainer, chaptered as a video script, on teaching an AI to drive a full lap of PolyTrack by searching the real physics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0A0D13; --bg-2:#0E121B;
+    --panel:#121722; --panel-2:#171E2B; --panel-3:#1E2636;
+    --line:#25303F; --line-soft:#1B2331;
+    --ink:#E8EDF6; --ink-dim:#98A4BA; --ink-faint:#5E6A85;
+    --hot:#FF6A3D; --hot-soft:#FF6A3D22;
+    --cool:#33D6C4; --cool-soft:#33D6C41f;
+    --good:#4ADE80; --warn:#FBBF24; --bad:#FF4D5E;
+    --violet:#9B8CFF;
+    --font-display:'Chakra Petch',system-ui,sans-serif;
+    --font-body:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+    --maxw:1040px; --textw:none;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-body); font-size:17px; line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(1200px 600px at 78% -8%, #14202e 0%, transparent 60%),
+      radial-gradient(900px 500px at 0% 4%, #170f10 0%, transparent 55%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 24px}
+  .measure{max-width:660px}
+
+  h1,h2,h3{font-family:var(--font-display); font-weight:600; text-wrap:balance; line-height:1.12; margin:0}
+  h2{font-size:clamp(26px,3.6vw,38px); letter-spacing:-.01em}
+  h3{font-size:20px; letter-spacing:.005em; margin-bottom:8px}
+  p{margin:0 0 18px}
+  a{color:var(--cool); text-underline-offset:3px}
+  strong{color:#fff; font-weight:600}
+  .hot{color:var(--hot)} .cool{color:var(--cool)} .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+  code,.mono{font-family:var(--font-mono)}
+  code{font-size:.86em; background:var(--panel-2); border:1px solid var(--line-soft); padding:.08em .4em; border-radius:5px; color:#cdd6e6}
+
+  .eyebrow{font-family:var(--font-mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-faint)}
+
+  /* ---- hero ---- */
+  header.hero{position:relative; overflow:hidden; border-bottom:1px solid var(--line-soft)}
+  .hero-grid{position:absolute; inset:0; opacity:.5;
+    background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:52px 52px; mask-image:linear-gradient(180deg,#000 0%,transparent 82%)}
+  .hero-inner{position:relative; padding:96px 0 72px}
+  .kicker{display:inline-flex; gap:10px; align-items:center; font-family:var(--font-mono); font-size:12.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-dim);
+    border:1px solid var(--line); background:#0c111b99; padding:7px 13px; border-radius:100px; backdrop-filter:blur(4px)}
+  .kicker .dot{width:7px; height:7px; border-radius:50%; background:var(--hot); box-shadow:0 0 12px var(--hot)}
+  h1{font-size:clamp(40px,7vw,80px); font-weight:700; letter-spacing:-.02em; margin:22px 0 0}
+  h1 .sub{display:block; font-family:var(--font-mono); font-weight:400; font-size:clamp(13px,1.6vw,17px); letter-spacing:.04em; color:var(--cool); margin-top:16px; text-transform:none}
+  .lede{font-size:clamp(18px,2.2vw,22px); line-height:1.55; color:var(--ink-dim); max-width:620px; margin:26px 0 0}
+  .lede b{color:var(--ink)}
+  .trace{width:100%; height:120px; margin-top:44px; display:block}
+
+  /* ---- section rhythm ---- */
+  section{padding:74px 0; border-bottom:1px solid var(--line-soft)}
+  .chapno{font-family:var(--font-mono); font-size:13px; letter-spacing:.15em; color:var(--hot)}
+  .chaphead{display:flex; align-items:baseline; gap:16px; margin-bottom:26px; flex-wrap:wrap}
+  .lead{font-size:20px; line-height:1.6; color:var(--ink-dim); max-width:680px}
+  .lead b{color:var(--ink)}
+
+  /* reveal */
+  .reveal{opacity:0; transform:translateY(18px); transition:opacity .6s ease, transform .6s ease}
+  .reveal.in{opacity:1; transform:none}
+  @media (prefers-reduced-motion:reduce){.reveal{opacity:1; transform:none; transition:none} .trace-anim{animation:none!important}}
+
+  /* panels & cards */
+  .panel{background:linear-gradient(180deg,var(--panel) 0%,var(--bg-2) 100%); border:1px solid var(--line); border-radius:14px}
+  .figure{margin:30px 0; padding:22px; }
+  .figure svg{width:100%; height:auto; display:block}
+  .cap{font-family:var(--font-mono); font-size:12.5px; color:var(--ink-faint); margin-top:14px; letter-spacing:.02em; line-height:1.6}
+  .cap b{color:var(--ink-dim); font-weight:500}
+
+  .grid{display:grid; gap:16px}
+  @media(min-width:720px){.g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px}
+  .card .tag{font-family:var(--font-mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint)}
+  .card h3{margin:.5em 0 .35em; font-size:17px}
+  .card p{font-size:15px; color:var(--ink-dim); margin:0}
+  .card.hotc{border-top:2px solid var(--hot)} .card.coolc{border-top:2px solid var(--cool)} .card.vic{border-top:2px solid var(--violet)}
+
+  /* stat strip */
+  .stats{display:grid; grid-template-columns:repeat(2,1fr); gap:1px; background:var(--line-soft); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:28px 0}
+  @media(min-width:720px){.stats{grid-template-columns:repeat(4,1fr)}}
+  .stat{background:var(--panel); padding:18px 20px}
+  .stat .n{font-family:var(--font-display); font-weight:700; font-size:26px; color:var(--ink); font-variant-numeric:tabular-nums; line-height:1}
+  .stat .n.hot{color:var(--hot)} .stat .n.cool{color:var(--cool)}
+  .stat .l{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); margin-top:9px}
+
+  /* callout / verdict */
+  .note{border-left:3px solid var(--cool); background:var(--cool-soft); padding:16px 20px; border-radius:0 10px 10px 0; margin:26px 0; font-size:16px}
+  .note.warnn{border-color:var(--warn); background:#fbbf2416}
+  .note.badn{border-color:var(--bad); background:#ff4d5e14}
+  .note .h{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-dim); display:block; margin-bottom:6px}
+  .note p{margin:0; color:var(--ink)}
+
+  /* telemetry readout block */
+  .readout{font-family:var(--font-mono); font-size:13.5px; line-height:1.85; background:#080b11; border:1px solid var(--line); border-radius:12px; padding:18px 20px; overflow-x:auto; color:#c6d0e2}
+  .readout .k{color:var(--ink-faint)}
+  .readout .drop{color:var(--bad)} .readout .ok{color:var(--good)} .readout .warnv{color:var(--warn)}
+
+  ul.clean{list-style:none; padding:0; margin:0}
+  ul.clean li{position:relative; padding:8px 0 8px 26px; border-bottom:1px solid var(--line-soft); color:var(--ink-dim); font-size:16px}
+  ul.clean li::before{content:"›"; position:absolute; left:4px; color:var(--hot); font-family:var(--font-mono)}
+  ul.clean li b{color:var(--ink)}
+
+  /* glossary */
+  dl.gloss{display:grid; gap:0; margin:0; border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  dl.gloss > div{display:grid; grid-template-columns:1fr; gap:4px; padding:16px 20px; border-bottom:1px solid var(--line-soft); background:var(--panel)}
+  @media(min-width:680px){dl.gloss > div{grid-template-columns:200px 1fr; gap:24px}}
+  dl.gloss dt{font-family:var(--font-mono); font-size:14px; color:var(--cool); font-weight:500}
+  dl.gloss dd{margin:0; color:var(--ink-dim); font-size:15px}
+
+  footer{padding:56px 0 80px; color:var(--ink-faint); font-family:var(--font-mono); font-size:12.5px; letter-spacing:.04em}
+
+  /* svg helpers */
+  .s-ink{stroke:var(--ink-dim)} .s-line{stroke:var(--line)} .f-ink{fill:var(--ink)} .f-dim{fill:var(--ink-dim)} .f-faint{fill:var(--ink-faint)}
+  text{font-family:var(--font-mono); fill:var(--ink-dim)}
+  .lbl{font-size:11px; letter-spacing:.04em}
+  .lblbig{font-size:13px; fill:var(--ink); font-family:var(--font-display); font-weight:600}
+</style>
+
+<header class="hero">
+  <div class="hero-grid"></div>
+  <div class="wrap hero-inner">
+    <span class="kicker"><span class="dot"></span> Game-playing AI · Technical breakdown</span>
+    <h1>Solving PolyTrack
+      <span class="sub">// teaching a car to drive a full lap — by searching the real physics, not by learning</span>
+    </h1>
+    <p class="lede">A racing game. A car that has to complete a lap. And an AI that, after reinforcement learning flatly refused to work, <b>plans the lap move-by-move inside a bit-exact copy of the game's own physics.</b> Here's the whole machine — and the bug hunt that made it drive.</p>
+
+    <svg class="trace" viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden="true">
+      <polyline class="trace-anim" fill="none" stroke="var(--hot)" stroke-width="2"
+        points="0,90 60,88 120,60 180,30 240,20 300,70 360,95 420,96 480,50 540,25 600,22 660,55 720,85 780,40 840,18 900,30 960,62 1000,64"
+        style="filter:drop-shadow(0 0 6px var(--hot))"/>
+      <polyline fill="none" stroke="var(--cool)" stroke-width="1.4" opacity=".55" stroke-dasharray="3 5"
+        points="0,84 120,66 240,40 360,78 480,52 600,34 720,72 840,36 960,58 1000,60"/>
+    </svg>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- 01 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.01</span><h2>The task, stated plainly</h2></div>
+    <p class="lead"><b>PolyTrack</b> is a low-poly time-trial racer: you hold four keys — accelerate, brake, steer left, steer right — and thread a car through checkpoints to a finish line, as fast as possible. Simple to describe, brutal to automate.</p>
+    <p class="measure" style="margin-top:22px">The car obeys real driving physics — momentum, grip, suspension, airtime. The tracks fold over themselves with ramps, jumps and stacked decks. A human learns the racing line in a few laps. A program has to discover, out of billions of possible key-press sequences, the one narrow ribbon of inputs that reaches the finish without spinning out or flying off the track.</p>
+    <div class="stats" role="list">
+      <div class="stat"><div class="n">4</div><div class="l">Input keys</div></div>
+      <div class="stat"><div class="n hot">~1000</div><div class="l">Physics ticks / sec</div></div>
+      <div class="stat"><div class="n cool">~1260 m</div><div class="l">Lap length (Summer&nbsp;1)</div></div>
+      <div class="stat"><div class="n">~25 s</div><div class="l">A full lap</div></div>
+    </div>
+    <p class="measure">At a thousand simulation ticks a second, a 25-second lap is <strong>~25,000 decisions</strong>. That is the haystack.</p>
+  </section>
+
+  <!-- 02 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.02</span><h2>First attempt: let it learn. It didn't.</h2></div>
+    <p class="lead">The obvious move is <b>reinforcement learning</b> — let the car try, reward progress, evolve a neural-net driver. We ran a parallel <b>Evolution Strategies</b> trainer for days. It never finished a single lap.</p>
+
+    <div class="figure panel">
+      <div class="readout" aria-label="Training log excerpt">
+<span class="k">gen 560</span>  bestCp=0  reward=<span class="warnv">2768</span>  finishers=<span class="drop">0/24</span>  (115762s)<br>
+<span class="k">gen 575</span>  bestCp=0  reward=<span class="warnv">2768</span>  finishers=<span class="drop">0/24</span>  meanReward=<span class="drop">-18494</span><br>
+<span class="k">gen 594</span>  bestCp=1  reward=<span class="warnv">2768</span>  finishers=<span class="drop">0/24</span>  (120369s)<br>
+<span class="k">gen 597</span>  bestCp=0  reward=<span class="warnv">2768</span>  finishers=<span class="drop">0/24</span>  ← flat for 300 generations
+      </div>
+      <div class="cap"><b>The stall.</b> ~600 generations, 33 hours of compute, best reward frozen at 2768, and <span class="bad">zero of 24</span> cars ever crossing the line. The population that dared to accelerate mostly crashed — so evolution learned to creep, not to race.</div>
+    </div>
+
+    <p class="measure">The reason is structural. The reward is <strong>sparse</strong> — you learn almost nothing until you finish, and you can't finish until you've already learned a great deal. The search space is enormous, the physics unforgiving, and a policy that's 99% right still flies off the same corner every time. RL wasn't converging on this track; it was drifting.</p>
+    <div class="note badn"><span class="h">Verdict</span><p>Learning a driver from scratch was the wrong tool. We stopped trying to <em>learn</em> the lap and started trying to <em>solve</em> it.</p></div>
+  </section>
+
+  <!-- 03 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.03</span><h2>The pivot: search the real physics</h2></div>
+    <p class="lead">Instead of training a network, <b>plan directly</b>. Run a tree search that tries key-presses inside an exact clone of the game engine, keeps the branches that make progress, and commits to them a fraction of a second at a time. Three parts make it work.</p>
+
+    <div class="figure">
+      <svg viewBox="0 0 1000 260" role="img" aria-label="The three-part solver pipeline">
+        <!-- connectors -->
+        <line x1="250" y1="130" x2="360" y2="130" class="s-line" stroke-width="1.5"/>
+        <line x1="640" y1="130" x2="750" y2="130" class="s-line" stroke-width="1.5"/>
+        <polygon points="360,130 350,125 350,135" fill="var(--line)"/>
+        <polygon points="750,130 740,125 740,135" fill="var(--line)"/>
+        <!-- box 1 -->
+        <g>
+          <rect x="24" y="46" width="226" height="168" rx="12" fill="var(--panel)" stroke="var(--hot)" stroke-width="1.5"/>
+          <text x="44" y="78" class="lbl" fill="var(--hot)">01 · ENGINE</text>
+          <text x="44" y="108" class="lblbig">Deterministic sim</text>
+          <text x="44" y="140" class="lbl">Headless 0.6.2 physics,</text>
+          <text x="44" y="158" class="lbl">bit-exact in Node.</text>
+          <text x="44" y="184" class="lbl" fill="var(--ink-faint)">snapshot() / restore()</text>
+          <text x="44" y="200" class="lbl" fill="var(--ink-faint)">= rewind time for free</text>
+        </g>
+        <!-- box 2 -->
+        <g>
+          <rect x="360" y="46" width="280" height="168" rx="12" fill="var(--panel)" stroke="var(--cool)" stroke-width="1.5"/>
+          <text x="382" y="78" class="lbl" fill="var(--cool)">02 · MAP</text>
+          <text x="382" y="108" class="lblbig">Guidance field</text>
+          <text x="382" y="140" class="lbl">Geodesic cost-to-go over</text>
+          <text x="382" y="158" class="lbl">~8,800 road cells. Knows</text>
+          <text x="382" y="176" class="lbl">which way is "forward",</text>
+          <text x="382" y="194" class="lbl">and how fast a corner allows.</text>
+        </g>
+        <!-- box 3 -->
+        <g>
+          <rect x="750" y="46" width="226" height="168" rx="12" fill="var(--panel)" stroke="var(--violet)" stroke-width="1.5"/>
+          <text x="770" y="78" class="lbl" fill="var(--violet)">03 · SEARCH</text>
+          <text x="770" y="108" class="lblbig">Windowed MCTS</text>
+          <text x="770" y="140" class="lbl">Try inputs, score by</text>
+          <text x="770" y="158" class="lbl">progress, lock the</text>
+          <text x="770" y="176" class="lbl">confident move, slide</text>
+          <text x="770" y="194" class="lbl">the window, repeat.</text>
+        </g>
+      </svg>
+      <div class="cap"><b>The pipeline.</b> The <span class="hot">engine</span> says what happens; the <span class="cool">field</span> says where to go; the <span style="color:var(--violet)">search</span> decides how. Because the engine is deterministic, the search can save a state, explore thousands of futures, and rewind to reality exactly.</div>
+    </div>
+
+    <p class="measure"><strong>Why determinism is the secret ingredient:</strong> the physics reimplementation is bit-for-bit identical to the game (it passes a self-test), so a saved snapshot replays identically every time. That's what makes tree search possible at all — you can branch the future, measure it, and undo it without drift.</p>
+  </section>
+
+  <!-- 04 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.04</span><h2>The guidance field: which way is forward?</h2></div>
+    <p class="lead">A search needs a compass. The naive one — <b>straight-line distance to the next checkpoint</b> — is a trap: on a winding track it points the car <b>straight through walls</b>. So we build a better one.</p>
+
+    <div class="figure panel">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="Euclidean distance versus geodesic field">
+        <!-- divider -->
+        <line x1="500" y1="30" x2="500" y2="270" class="s-line" stroke-dasharray="4 6"/>
+        <text x="40" y="52" class="lbl" fill="var(--bad)">NAÏVE · straight-line distance</text>
+        <text x="560" y="52" class="lbl" fill="var(--cool)">GEODESIC · cost-to-go along the road</text>
+
+        <!-- left: winding road with arrow through wall -->
+        <path d="M60,240 L60,120 Q60,90 90,90 L200,90 Q230,90 230,120 L230,210 Q230,240 260,240 L410,240"
+              fill="none" stroke="var(--panel-3)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M60,240 L60,120 Q60,90 90,90 L200,90 Q230,90 230,120 L230,210 Q230,240 260,240 L410,240"
+              fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 6"/>
+        <circle cx="60" cy="240" r="7" fill="var(--hot)" style="filter:drop-shadow(0 0 6px var(--hot))"/>
+        <text x="72" y="262" class="lbl" fill="var(--ink)">car</text>
+        <circle cx="410" cy="240" r="6" fill="var(--good)"/>
+        <text x="360" y="230" class="lbl" fill="var(--good)">checkpoint</text>
+        <line x1="60" y1="240" x2="410" y2="240" stroke="var(--bad)" stroke-width="2"/>
+        <polygon points="410,240 398,234 398,246" fill="var(--bad)"/>
+        <text x="150" y="200" class="lbl" fill="var(--bad)">points through the wall ✕</text>
+
+        <!-- right: same road, gradient following it -->
+        <g transform="translate(500,0)">
+          <path d="M60,240 L60,120 Q60,90 90,90 L200,90 Q230,90 230,120 L230,210 Q230,240 260,240 L410,240"
+                fill="none" stroke="var(--panel-3)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M60,240 L60,120 Q60,90 90,90 L200,90 Q230,90 230,120 L230,210 Q230,240 260,240 L410,240"
+                fill="none" stroke="url(#grad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+          <circle cx="60" cy="240" r="7" fill="var(--hot)" style="filter:drop-shadow(0 0 6px var(--hot))"/>
+          <circle cx="410" cy="240" r="6" fill="var(--good)"/>
+          <!-- little flow arrows along the road -->
+          <g fill="var(--cool)" opacity=".9">
+            <polygon points="60,150 55,162 65,162"/>
+            <polygon points="150,90 138,85 138,95"/>
+            <polygon points="230,160 225,148 235,148"/>
+            <polygon points="330,240 318,235 318,245"/>
+          </g>
+          <text x="120" y="200" class="lbl" fill="var(--cool)">follows the road ✓</text>
+        </g>
+        <defs>
+          <linearGradient id="grad" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="var(--bad)"/><stop offset=".5" stop-color="var(--warn)"/><stop offset="1" stop-color="var(--good)"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="cap"><b>Euclidean vs. geodesic.</b> We voxelise the drivable road into ~8,800 cells and run <b>Dijkstra</b> outward from each checkpoint, so every cell knows the true <b>metres of track left to drive</b> (colour = cost-to-go). The gradient always points along the road — never through a barrier.</div>
+    </div>
+
+    <div class="grid g3" style="margin-top:8px">
+      <div class="card coolc"><div class="tag">Potential</div><h3>Cost-to-go</h3><p>Metres of road remaining to the finish. Lower is better — the search is rewarded for shrinking it.</p></div>
+      <div class="card coolc"><div class="tag">Route target</div><h3>Where to aim</h3><p>A point on the road a few metres ahead, found by rolling downhill on the field. The steering aims here.</p></div>
+      <div class="card coolc"><div class="tag">Speed cap</div><h3>How fast is safe</h3><p>A per-cell speed limit derived from the road's curvature — and, later, its <span class="hot">steepness</span>. This detail becomes the hero of the story.</p></div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.05</span><h2>Windowed MCTS: search a little, commit a little</h2></div>
+    <p class="lead">You can't tree-search a whole 25-second lap at once — the branches explode. So the solver works in a <b>sliding window</b>: search the next slice of the future in depth, <b>lock</b> only the part it's most sure of, slide forward, and search again.</p>
+
+    <div class="figure panel">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="The search window: locked, searched, and horizon">
+        <!-- timeline base -->
+        <line x1="40" y1="210" x2="960" y2="210" class="s-line" stroke-width="1.5"/>
+        <!-- locked region -->
+        <rect x="40" y="188" width="240" height="44" rx="4" fill="var(--good)" opacity=".16"/>
+        <rect x="40" y="188" width="240" height="44" rx="4" fill="none" stroke="var(--good)" stroke-width="1.2"/>
+        <text x="52" y="256" class="lbl" fill="var(--good)">LOCKED · committed inputs</text>
+        <!-- block ticks in locked -->
+        <g stroke="var(--good)" stroke-width="1" opacity=".5">
+          <line x1="80" y1="188" x2="80" y2="232"/><line x1="120" y1="188" x2="120" y2="232"/>
+          <line x1="160" y1="188" x2="160" y2="232"/><line x1="200" y1="188" x2="200" y2="232"/><line x1="240" y1="188" x2="240" y2="232"/>
+        </g>
+        <!-- car at frontier -->
+        <circle cx="280" cy="210" r="7" fill="var(--hot)" style="filter:drop-shadow(0 0 7px var(--hot))"/>
+
+        <!-- search window bracket -->
+        <rect x="280" y="188" width="300" height="44" rx="4" fill="var(--violet)" opacity=".12"/>
+        <text x="300" y="256" class="lbl" fill="var(--violet)">SEARCH WINDOW · ~400 ms of lookahead</text>
+
+        <!-- tree fan over the window -->
+        <g stroke="var(--violet)" fill="none" stroke-width="1.2" opacity=".85">
+          <path d="M280,210 L340,150"/><path d="M280,210 L340,210"/><path d="M280,210 L340,262"/>
+          <path d="M340,150 L410,120"/><path d="M340,150 L410,168"/>
+          <path d="M340,210 L410,196"/><path d="M340,210 L410,236"/>
+          <path d="M340,262 L410,250"/><path d="M340,262 L410,278"/>
+          <path d="M410,120 L500,110"/><path d="M410,168 L500,160"/><path d="M410,196 L500,188"/>
+        </g>
+        <!-- principal variation highlighted -->
+        <path d="M280,210 L340,150 L410,168 L500,160 L560,150" stroke="var(--cool)" stroke-width="2.4" fill="none"
+              style="filter:drop-shadow(0 0 5px var(--cool))"/>
+        <circle cx="340" cy="150" r="3.5" fill="var(--cool)"/><circle cx="410" cy="168" r="3.5" fill="var(--cool)"/>
+        <circle cx="500" cy="160" r="3.5" fill="var(--cool)"/>
+        <text x="470" y="128" class="lbl" fill="var(--cool)">most-visited path</text>
+
+        <!-- rollout dashed to horizon -->
+        <path d="M560,150 L700,175 L820,150 L940,168" stroke="var(--ink-faint)" stroke-width="1.4" stroke-dasharray="3 5" fill="none"/>
+        <text x="690" y="205" class="lbl" fill="var(--ink-faint)">rollout → horizon (scored, not locked)</text>
+
+        <!-- slide arrow -->
+        <g transform="translate(0,44)">
+          <text x="40" y="120" class="lbl" fill="var(--ink-dim)">then slide →</text>
+          <rect x="140" y="98" width="90" height="20" rx="3" fill="var(--good)" opacity=".28"/>
+          <line x1="235" y1="108" x2="300" y2="108" stroke="var(--ink-dim)" stroke-width="1.4"/>
+          <polygon points="300,108 290,103 290,113" fill="var(--ink-dim)"/>
+        </g>
+      </svg>
+      <div class="cap"><b>Anatomy of one window.</b> Inputs are chunked into <b>20&nbsp;ms blocks</b> (16 possible key combinations each). Thousands of simulations grow a <b>UCT tree</b> over the window and <b>roll out</b> to a horizon, scoring each by geodesic progress, exit speed, airtime, slip and overspeed. The most-visited chain gets <span class="good">locked</span>; the window slides; repeat until the finish.</div>
+    </div>
+
+    <div class="grid g2">
+      <div class="card vic"><div class="tag">Confidence gate + rewind</div><h3>Lock only what's sure — and back up when stuck</h3><p>A move is committed only if enough simulations agree. When progress stalls (a hard corner or a jump), the solver <b>rewinds</b> a second or two, reseeds its randomness, and attacks the spot again — up to 40 fresh attempts.</p></div>
+      <div class="card vic"><div class="tag">Root-parallel consensus</div><h3>A dozen searchers voting at once</h3><p>Twelve worker threads search the same window with different random seeds, then <b>merge their visit counts</b> into one consensus before locking. Because the engine is deterministic, they all advance in perfect lockstep.</p></div>
+    </div>
+
+    <div class="note"><span class="h">A speed trick</span><p>The guidance field also powers a fast <b>rollout driver</b> — a reflex steering policy that just follows the route target and respects the speed cap. It drives the boring opening of the lap instantly, so the expensive tree search only spends its effort where the track is actually hard. We call it <b>seeding</b>.</p></div>
+  </section>
+
+  <!-- 06 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.06</span><h2>The bug hunt (this is the good part)</h2></div>
+    <p class="lead">The architecture was sound and the car still couldn't finish. Every run died at the <b>same corner</b> of Summer&nbsp;1. Fixing it meant becoming a forensic investigator of a physics engine — and it's where the real story lives.</p>
+
+    <h3 style="margin-top:34px; color:var(--hot)">Bug #1 — The car was flying off a cliff</h3>
+    <p class="measure">After the first checkpoint, the road plunges from a height of ~57 down to ~3. Tracing the car frame-by-frame, we caught it: it hit the drop at <strong>130 km/h</strong>, went <strong>fully airborne</strong> — wheels off the ground the entire descent — sailed past the landing, and dropped onto a dead-end lower ledge where it was trapped forever. The guidance field had put <b>no speed limit</b> on the descent, because it only measured horizontal curvature, and a straight ramp looks perfectly gentle from above.</p>
+
+    <div class="figure panel">
+      <svg viewBox="0 0 1000 300" role="img" aria-label="Elevation profile of the jump, before and after the speed-cap fix">
+        <!-- ground/road profile -->
+        <text x="40" y="34" class="lbl" fill="var(--ink-dim)">SIDE VIEW · elevation along the road</text>
+        <!-- the ramp -->
+        <path d="M60,90 L300,90 L470,235 L940,235" fill="none" stroke="var(--panel-3)" stroke-width="10" stroke-linejoin="round"/>
+        <path d="M60,90 L300,90 L470,235 L940,235" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 6"/>
+        <!-- dead-end ledge -->
+        <rect x="600" y="258" width="150" height="8" rx="2" fill="var(--bad)" opacity=".5"/>
+        <text x="600" y="284" class="lbl" fill="var(--bad)">dead-end ledge</text>
+
+        <!-- BEFORE: airborne arc off the top -->
+        <path d="M300,86 Q460,40 640,120 T760,262" fill="none" stroke="var(--bad)" stroke-width="2.2" stroke-dasharray="1 0"
+              style="filter:drop-shadow(0 0 5px var(--bad))"/>
+        <circle cx="300" cy="86" r="6" fill="var(--bad)"/>
+        <text x="470" y="70" class="lbl" fill="var(--bad)">✕ 130 km/h → airborne → overshoot</text>
+
+        <!-- AFTER: grounded, hugs the ramp -->
+        <path d="M300,84 L470,229 L620,229" fill="none" stroke="var(--good)" stroke-width="2.4"
+              style="filter:drop-shadow(0 0 5px var(--good))"/>
+        <circle cx="620" cy="229" r="6" fill="var(--good)"/>
+        <text x="500" y="215" class="lbl" fill="var(--good)">✓ capped → stays on the road → 240 km/h out</text
+        ><text x="325" y="120" class="lbl" fill="var(--ink-faint)">brake for the drop</text>
+      </svg>
+      <div class="cap"><b>The fix: elevation-aware speed caps.</b> We taught the guidance field to read the <b>gradient</b> of the road ahead, not just its curvature, and cap the approach speed on steep descents. The car now stays glued to the ramp, lands clean, and rockets out the bottom at <span class="good">240 km/h</span>. This one change unblocked what every prior run — RL included — had died on for months.</div>
+    </div>
+
+    <h3 style="margin-top:40px; color:var(--hot)">Bug #2 — A wall the map couldn't see</h3>
+    <p class="measure">Past the jump, the car floors it down a straight and then, at a specific spot, <strong>slams from 251 km/h to 43 in a single frame</strong> and stops dead. Replaying the exact trajectory showed a <b>physical wall</b> where the low surface steps up to the main road. The catch: the guidance field is built only from <b>drivable road faces</b> — vertical walls are filtered out — so the map cheerfully routes the car <b>straight through a wall it doesn't know exists.</b></p>
+
+    <div class="figure panel">
+      <svg viewBox="0 0 1000 200" role="img" aria-label="Speed trace showing the sudden crash at the wall">
+        <line x1="60" y1="30" x2="60" y2="160" class="s-line"/>
+        <line x1="60" y1="160" x2="960" y2="160" class="s-line"/>
+        <text x="14" y="40" class="lbl" fill="var(--ink-faint)">km/h</text>
+        <text x="900" y="182" class="lbl" fill="var(--ink-faint)">distance →</text>
+        <!-- rising speed then cliff -->
+        <path d="M60,140 L200,120 L360,96 L520,70 L700,44 L760,40" fill="none" stroke="var(--hot)" stroke-width="2.4"
+              style="filter:drop-shadow(0 0 5px var(--hot))"/>
+        <!-- the drop -->
+        <path d="M760,40 L768,150" fill="none" stroke="var(--bad)" stroke-width="2.6" style="filter:drop-shadow(0 0 6px var(--bad))"/>
+        <path d="M768,150 L940,152" fill="none" stroke="var(--bad)" stroke-width="2" stroke-dasharray="3 4"/>
+        <circle cx="760" cy="40" r="4" fill="var(--hot)"/>
+        <text x="640" y="30" class="lbl" fill="var(--hot)">251 km/h</text>
+        <text x="792" y="150" class="lbl" fill="var(--bad)">43 km/h · one frame · WALL</text>
+      </svg>
+      <div class="cap"><b>The trace that named the bug.</b> A vertical wall is invisible to a road-only map. This is an honest, still-open limit — not a tuning knob.</div>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="reveal">
+    <div class="chaphead"><span class="chapno">CH.07</span><h2>Where it stands — and what it took</h2></div>
+    <p class="lead">The solver now drives <b>further into the track than anything before it</b> — clearing the launch, the checkpoint, and the jump that had stopped every attempt for months. A full finishing lap is close, but not yet in hand.</p>
+
+    <div class="stats">
+      <div class="stat"><div class="n good">CP-0 ✓</div><div class="l">Launch cleared</div></div>
+      <div class="stat"><div class="n cool">240 km/h</div><div class="l">Jump landed &amp; cleared</div></div>
+      <div class="stat"><div class="n hot">x ≈ −64</div><div class="l">Blocked at the wall</div></div>
+      <div class="stat"><div class="n">0 → deep</div><div class="l">vs. RL's zero finishers</div></div>
+    </div>
+
+    <p class="measure">What remains is a real engineering task, not a setting: teach the search to <b>model walls</b> and to <b>penalise dropping below the road surface</b>, so it keeps the car on the high racing line instead of the dead-end ledge. The jump fix was the big unlock; this is the next chapter.</p>
+
+    <div class="note"><span class="h">The honest headline</span><p>Reinforcement learning couldn't finish a lap in 33 hours. <b>Search over the real physics</b> — deterministic engine, geodesic map, windowed MCTS — drives the hard majority of the track and turned an impossible problem into a debuggable one.</p></div>
+  </section>
+
+  <!-- glossary -->
+  <section class="reveal" style="border-bottom:none">
+    <div class="chaphead"><span class="chapno">REF</span><h2>Terms, for the narration</h2></div>
+    <p class="lead" style="margin-bottom:26px">Quick, say-out-loud definitions you can drop into the video.</p>
+    <dl class="gloss">
+      <div><dt>Deterministic sim</dt><dd>A copy of the game's physics that gives the exact same result every time — so you can save the moment, try a thousand futures, and rewind.</dd></div>
+      <div><dt>Geodesic field</dt><dd>A map where every spot on the road knows the real driving distance left to the finish. Its downhill direction is "forward."</dd></div>
+      <div><dt>Speed cap</dt><dd>A per-spot speed limit from the road's shape — sharpness of the corner and, crucially, steepness of the drop.</dd></div>
+      <div><dt>MCTS</dt><dd>Monte-Carlo Tree Search: try lots of move sequences, keep exploring the promising ones, commit to the winner.</dd></div>
+      <div><dt>Window / lock / slide</dt><dd>Search a short slice of the future, commit only the part you're sure of, move forward, repeat.</dd></div>
+      <div><dt>Rollout</dt><dd>A fast, rough drive to the horizon used to score how good a branch looks without searching it in full.</dd></div>
+      <div><dt>Seeding</dt><dd>Letting a simple reflex driver handle the easy opening so the expensive search only works the hard parts.</dd></div>
+      <div><dt>Rewind</dt><dd>When the car gets stuck, back up a couple of seconds, shuffle the randomness, and try the spot again.</dd></div>
+    </dl>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  PolyTrack AI · deterministic physics + geodesic guidance + windowed MCTS. Game © Kodub; used locally for AI research.
+</footer>
+
+<script>
+  (function(){
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('.reveal').forEach(function(e){e.classList.add('in')}); return;
+    }
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, {rootMargin:'0px 0px -12% 0px', threshold:0.08});
+    document.querySelectorAll('.reveal').forEach(function(e){io.observe(e)});
+
+    // draw the hero trace on load
+    var t = document.querySelector('.trace-anim');
+    if (t && t.getTotalLength) {
+      var L = t.getTotalLength();
+      t.style.strokeDasharray = L; t.style.strokeDashoffset = L;
+      t.getBoundingClientRect();
+      t.style.transition = 'stroke-dashoffset 2.2s cubic-bezier(.4,0,.1,1)';
+      requestAnimationFrame(function(){ t.style.strokeDashoffset = '0'; });
+    }
+  })();
+</script>
