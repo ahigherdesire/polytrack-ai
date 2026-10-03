@@ -1,286 +1,235 @@
-# PolyTrack AI
+# How to Copy, Speed Up, and Play Any PolyTrack Lap
 
-An AI that **learns to drive** [PolyTrack](https://www.kodub.com/apps/polytrack) by running the
-game's own physics headless and training a neural-network policy with Evolution
-Strategies — aiming at world-record lap times.
+A step-by-step guide. If you can copy-paste, you can do this. No coding needed.
 
-## Haoyuone Quick Notes
+**What you'll be able to do:**
+- 📥 Copy any player's exact lap from the game (even the world record).
+- ⚡ Optionally make it *faster* (the computer tweaks it and only keeps faster, legal laps).
+- ▶️ Watch it play out perfectly on the real track.
 
-For the `tracks/haoyuone.json` Raspberry Pi workflow, see:
-
-```text
-HAOYUONE_RESET_AND_JSON_GUIDE.md
-```
-
-Start the click control UI on the Pi:
-
-```bash
-cd ~/polytrack-ai
-node train/control_panel.js 7790
-```
-
-Open it from Windows:
-
-```text
-http://raspberrypi5.local:7790
-```
-
-Start the guide map loader on the Pi:
-
-```bash
-cd ~/polytrack-ai
-node train/map_loader.js 7792
-```
-
-Open it from Windows:
-
-```text
-http://raspberrypi5.local:7792
-```
-
-Guide points are 3D now. Click to place `x/y/z` points, use `Snap Y`,
-`Low`, `High`, or `Snap all Y` to put points on the track mesh height, then
-save `data/guide.haoyuone.json`.
-
-The finished keyboard replay is:
-
-```bash
-~/polytrack-ai/data/es_lap.haoyuone.json
-```
-
-Check that it actually finished before copying it:
-
-```bash
-cd ~/polytrack-ai
-node -e "const x=require('./data/es_lap.haoyuone.json'); console.log(x.kind, x.finishSeconds, x.finishFrames, x.actions?.length)"
-```
-
-Copy it from Windows Command Prompt:
-
-```bat
-scp rp5user@raspberrypi5.local:~/polytrack-ai/data/es_lap.haoyuone.json "%USERPROFILE%\Downloads\es_lap.haoyuone.json"
-```
-
-<<<<<<< HEAD
----
-
-## Why it's built this way
-
-You can't train a record-beating racing AI inside a live browser. RL/ES for
-time-trial racing needs **hundreds of millions of physics steps**; a browser runs
-at 60 fps. Every project that has actually beaten human racing records (e.g.
-*Linesight* for TrackMania) does the same three things, and so do we:
-=======
-## The sad thing:
-
-Damn it. I cannot train a record-beating racing AI inside a live browser. RL for time-trial
-racing needs hundreds of millions to billions of physics steps; a browser runs at
-60 fps. Every project that has actually beaten human racing world records (e.g.
-[Linesight](https://github.com/pb4git/linesight-public) for TrackMania) does the
-same three things, and so do we:
->>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
-
-1. **Run the game's real physics headless, far faster than real time.**
-2. **Train in that fast sim.**
-3. **Replay the resulting input sequence in the real game** to validate/submit.
-
-The make-or-break requirement: the headless physics must match the browser
-**bit-for-bit**, or the optimal inputs won't reproduce. PolyTrack makes this
-possible because its physics is **deterministic** and runs in a **Web Worker** we
-can drive independently of rendering.
+It uses the game's **real recording data** (not screen-reading), so everything is
+frame-perfect.
 
 ---
 
-<<<<<<< HEAD
-## How it works (the pipeline)
-=======
-The **live** game (https://www.kodub.com/apps/polytrack) is **0.6.2**, served from
-`https://app-polytrack.kodub.com/0.6.2/`. That is our target — its physics is what
-produces the current world records. We keep an older `0.5.0` build too (it used
-Ammo/Bullet; useful as a cross-check), but **0.6.2 is primary**.
+## ⭐ Easy mode: the control panel
 
-> Physics engine changed between versions: 0.5.0 used **Ammo.js (Bullet)**; 0.6.2
-> uses a **custom Emscripten C engine** `lib/polytrack_physics.js` with a clean C
-> API (`_createCarModel`, `_updateCarModel`, `_addTrackPartConfiguration`,
-> `_testDeterminism`, ...). Both are deterministic, fixed **1 ms/frame (1000 fps)**.
-
-## What is already proven
-
-- **0.6.2 (live):** the custom `polytrack_physics` engine loads headless in Node
-  (`npm run probe:physics062`) and the **full worker bundle** (Three.js + engine +
-  embedded wasm) boots in a clean `vm` sandbox and **passes the determinism
-  self-test**: `npm run test:determinism:062` → `isDeterminstic = true`.
-- **0.5.0 (archive):** same approach over Ammo/Bullet; `npm run test:determinism`
-  → `true`.
-- This is the critical proof that inputs found in our headless sim transfer
-  **bit-exact** to the browser — the thing that defeats every screen-capture bot.
-
-## Arch
->>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
-
+Instead of typing commands to inspect laps, run this once in the terminal:
+```powershell
+node bridge/ui.js 7800
 ```
- ┌─────────────────────────────────────────────────────────────────────┐
- │ 1. HEADLESS SIM  (sim/)                                              │
- │    Run the game's real simulation_worker.bundle.js + polytrack_      │
- │    physics.wasm in Node, inside a vm sandbox with Web-Worker shims.  │
- │    Deterministic, ~tens of thousands of frames/sec, no rendering.    │
- └─────────────────────────────────────────────────────────────────────┘
-        │ observation                              ▲ controls (5 inputs)
-        ▼                                          │
- ┌─────────────────────────────────────────────────────────────────────┐
- │ 2. POLICY + TRAINING  (train/)                                      │
- │    A tiny MLP maps observations -> controls. Evolution Strategies    │
- │    evolves its weights across all CPU cores, scoring each candidate  │
- │    by a full simulated lap (checkpoints reached, then finish time).  │
- └─────────────────────────────────────────────────────────────────────┘
-        │ best policy / best lap                   ▲ live metrics
-        ▼                                          │
- ┌──────────────────────────┐          ┌───────────────────────────────┐
- │ 3. OUTPUTS               │          │ 4. DASHBOARD  (train/)        │
- │ data/policy.json (brain) │          │ live charts + track map +     │
- │ data/es_lap.json (inputs)│          │ the policy's driving path     │
- └──────────────────────────┘          └───────────────────────────────┘
-        │
-        ▼  (next) browser bridge: replay inputs in the real game, submit time
-```
-
-<<<<<<< HEAD
-### 1. Headless simulation — `sim/`
-=======
-### WMP  (worker msg prot)
->>>>>>> de5176b68afbf668d7d6bffc2532ba36b493c76a
-
-The live game is **0.6.2** (served from `app-polytrack.kodub.com/0.6.2/`). Its
-physics is **Bullet, compiled to a custom Emscripten engine** (`polytrack_physics.wasm`),
-driven by `simulation_worker.bundle.js` at a fixed **1 ms / frame (1000 fps)**.
-
-`sim/headless062.js` runs that exact worker in Node:
-- The custom physics wasm is preloaded (so Emscripten reads it from disk, not fetch).
-- The worker bundle runs in a clean `vm` context with shims for `self`,
-  `importScripts`, `postMessage`, `requestAnimationFrame`, a fake monotonic clock,
-  and a minimal `document` (the worker bundles Three.js).
-- A one-line patch makes each "frame pump" advance **exactly one** physics frame.
-
-It exposes a clean API:
-- `loadCar(init, createCar)` — set up the track + a controllable car.
-- `step({up,down,left,right,reset})` — advance one frame, return the decoded state.
-- `reset()` — restart the car at the line (cheap, no wasm reload).
-- `snapshot()` / `restore()` — **bit-exact O(1) branching** (copy the wasm heap +
-  car counters). Powers fast search and instant training resets.
-- `checkpoints()` — checkpoint waypoints in world coords.
-
-Other sim pieces:
-- `sim/carstate.js` — exact port of the game's 227-byte car-state decoder.
-- `sim/geom.js` — grid→world (`×5`), quaternion/heading helpers.
-- `sim/track_sensors.js` — rasterizes the track into an occupancy grid and casts
-  **road-edge sensor rays** (so the policy can "see" walls/road shape ahead).
-- `sim/observe.js` — builds the policy's observation vector.
-
-**Determinism is verified:** `node sim/test_determinism062.js` runs the engine's
-own bit-exact self-test headless → `isDeterminstic = true`.
-
-### 2. Policy + training — `train/`
-
-- `train/policy.js` — a small MLP: observation (17 features) → 4 control outputs.
-- `sim/observe.js` — observation = signed speed, ground contact, direction +
-  distance to the next two checkpoints, and 7 road-edge sensor rays.
-- `train/evaluator.js` — runs one full lap for a weight vector and scores it:
-  `reward = checkpointsReached·3000 − distanceToNextCheckpoint + (finished ? 2e6 − finishFrames : 0)`.
-  So progress is always rewarded, finishing dominates, and among finishing laps the
-  **fastest** wins.
-- `train/es_parallel.js` — **Evolution Strategies** (OpenAI-ES: antithetic,
-  rank-normalized). Each generation perturbs the weights into a population, evaluates
-  every candidate in parallel across `worker_threads` (one sim per core), and nudges
-  the weights toward the better-scoring perturbations. Standard launches resume
-  `data/policy.json`; add `--fresh` for a new random policy with no inherited lap
-  or reward record.
-
-ES is used (instead of backprop RL) because the sim is a fast, deterministic black
-box: ES needs no gradients, parallelizes trivially, and optimizes the **whole-lap
-outcome**, so the policy learns to brake into corners on its own.
-
-### 3. Outputs — `data/`
-
-- **`data/policy.json`** — the trained network weights (the "driver brain"). Updated
-  every generation. Replaying it regenerates a lap deterministically.
-- **`data/es_lap.json`** — the **input sequence** (per-frame controls) of the current
-  best lap, plus its checkpoint progress and finish time. Updated **whenever the best
-  reward improves**. This is the submittable artifact: replaying these inputs in the
-  real game reproduces the lap exactly.
-
-### 4. Dashboard — `train/dashboard.js`
-
-A live web UI (default `http://localhost:7780`): a fresh-run status overview,
-generation / best-checkpoint / reward / speed cards, best-reward and checkpoint
-charts, and a **top-down track map
-showing the current best policy's actual driving path** (so you can see where it gets
-stuck). It parses the training log and replays `data/policy.json` on demand.
+then open **http://localhost:7800** in your browser. It lists every lap you have
+(track, driver, time, inputs), shows the live optimizer status, and gives you a
+**one-click "copy play script"** for each lap — paste that into the game console and
+press a key to watch it. You still capture tracks and fetch laps with the steps
+below, but the panel is the easiest way to see everything and grab a lap to play.
 
 ---
 
-## Run it
+## 0. Words you'll see (read this once)
 
-```bash
-# prove the real physics runs headless & deterministic
-node sim/test_determinism062.js
+- **Terminal** = a black/blue text window where you type commands. On Windows, open
+  **PowerShell** (press Start, type "PowerShell", Enter).
+- **Console** = the browser's text box for JavaScript. Open it with **F12**, then click
+  the **Console** tab.
+- **Recording** = the game's short code for a whole lap's button presses (looks like
+  random letters: `eJw10T1L...`).
+- **Track file** = the track's shape, saved so our simulator knows the track.
+- **trackId** = the track's ID number on the server (a long string of letters/numbers).
 
-# drive a car on the captured track (holds accelerate)
-node sim/run_car062.js
+Whenever this guide says "in the terminal," it means: in your PowerShell window, **in
+the project folder**. Set that up once per session by running:
 
-# train  (generations, population, maxFrames, workers)
-node train/es_parallel.js 4000 78 30000 13
-
-# watch it  ->  http://localhost:7780
-node train/dashboard.js train3.log 7780
+```powershell
+cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"
 ```
-
-> Training writes progress to `train3.log`, and updates `data/policy.json` +
-> `data/es_lap.json` as it improves.
-
-### Getting the track data (`data/constants.json`)
-
-The sim needs the track + car collision data the game builds from its assets. It's
-captured once from the live game with `bridge/capture_payloads.js` (paste into the
-browser console, load a track), which dumps the worker's `Init` + `CreateCar`
-messages to JSON. See that file's header for the exact steps. *(This file is large
-and git-ignored; it must exist in `data/` to run the sim.)*
+(Keep that window open. Every `node ...` command below goes there.)
 
 ---
 
-## Repo layout
+## 1. One-time check
 
+In the terminal, type:
+```powershell
+node --version
 ```
-game/0.6.2/   The live game's real code: simulation_worker.bundle.js,
-              main.bundle.js, lib/polytrack_physics.{js,wasm}   (physics source)
-sim/          Headless sim + decoding + sensors + geometry
-train/        policy, evaluator, ES trainers, search solvers, dashboard
-bridge/       capture_payloads.js (browser hook to grab track data)
-data/         constants.json (captured), policy.json + es_lap.json (produced)
-```
+- If you see something like `v24.x` → you're good.
+- If it says "not recognized" → install Node.js from **nodejs.org** (the big green
+  button), then reopen PowerShell.
 
-Also present: `game/` (root) holds the older **0.5.0** build (Ammo/Bullet) used as a
-cross-check; `train/beam_search.js` etc. are heuristic finishing solvers kept for
-reference (they clear the first corners but can't speed-control like the learned
-policy).
+Also make sure the file **`data/constants.json`** exists in the project (it's the
+shared car/physics data, already captured). If it's missing, see **Appendix A**.
 
 ---
 
-## Status & roadmap
+## 2. The whole thing in 4 steps
 
-- [x] Headless 0.6.2 physics in Node, bit-exact (determinism self-test passes)
-- [x] Real car drives a real track; state decode; checkpoint geometry; snapshot/restore
-- [x] Road-edge sensors; Evolution Strategies trainer (parallel) + live dashboard
-- [x] Learned policy clears the corners heuristic search couldn't
-- [ ] A full finishing lap of Summer 1 (in progress — currently ~2/3 checkpoints)
-- [ ] **TAS refinement:** CMA-ES over the input sequence to minimize lap time
-- [ ] **Browser bridge:** serialize inputs to the game's recording format, replay in
-      the real game to confirm the time matches to the millisecond, submit to leaderboard
+1. **Capture the track** (browser) — tells the simulator the track's shape. Once per track.
+2. **Get the lap** you want to copy/beat (one command, or browser).
+3. **(optional) Make it faster.**
+4. **Play it** in the game.
 
-**Honest expectation:** first comes a lap that *finishes*; reaching *world-record*
-time needs the refinement pass and more compute — the engine for it (fast
-snapshot-based input search) is built, but WR-level time isn't guaranteed in a fixed
-window. Leaderboard submission must go through a browser (the API is on a port this
-environment can't reach).
+Below, replace `NAME` with a short name for your track (e.g. `hollowdunes`) — same
+word every time.
 
-Game assets are © Kodub; included only to run the physics locally for AI research.
+---
+
+## STEP 1 — Capture the track (browser)
+
+You only do this once per track.
+
+1. Open **https://app-polytrack.kodub.com/0.6.2/** in Chrome or Edge. Check the title
+   screen says **0.6.2**.
+2. Press **F12** → click **Console**.
+3. Copy-paste this whole block and press **Enter**:
+   ```js
+   (()=>{const c=(window.__cap={init:null,createCar:null,all:[]});const safe=o=>JSON.parse(JSON.stringify(o,(k,v)=>ArrayBuffer.isView(v)?Array.from(v):v));const P=Worker.prototype;if(!P.__h){const o=P.postMessage;P.postMessage=function(m,t){try{if(m&&m.messageType===0)c.init=safe(m);if(m&&m.messageType===3)c.createCar=safe(m);if(m&&'messageType'in m)c.all.push(m.messageType);}catch(e){}return o.call(this,m,t)};P.__h=1;}window.__dump=(n='track')=>{const b=new Blob([JSON.stringify(c)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n+'.json';a.click();console.log('createCar:',!!c.createCar);};return'hooked';})()
+   ```
+   It should print `hooked`.
+4. In the game, click **Play** and **enter your track** so the car appears at the start
+   line. (If the track was already open, press **R** to restart.)
+5. Back in the console, type this and press Enter (use your short name):
+   ```js
+   __dump("NAME")
+   ```
+   It downloads **`NAME.json`** and prints `createCar: true`. ✅ (If it says `false`,
+   restart the track with **R** and run `__dump("NAME")` again.)
+
+6. Now in the **terminal**, turn that download into a track file:
+   ```powershell
+   node train/make-track.js "C:\Users\LIXINYUAN\Downloads\NAME.json" NAME
+   ```
+   ✅ Success looks like: `wrote ...\tracks\NAME.json`.
+
+---
+
+## STEP 2 — Get the lap you want to copy
+
+You need the lap as a file the tools understand. Two ways — **A is easiest.**
+
+### Way A — One command (needs the track's `trackId`)
+
+If you know the trackId:
+```powershell
+node bridge/fetch-recording.js TRACKID 1 data/grabbed/NAME_wr.json
 ```
+- `1` means **world record**. Use `2`, `3`, … for 2nd place, 3rd place, etc.
+- ✅ Success looks like: `youngfella  22.262s (rank 1/…)` and `wrote …NAME_wr.json`.
+
+**Don't know the trackId?** Get it in 20 seconds:
+1. In the game, open your track's **leaderboard**.
+2. In the console, paste the **grabber** below and watch any time — it prints
+   `[grab] trackId = ...`. Copy that value and use it above.
+
+### Way B — Browser grab (works for any track, no trackId hunting)
+
+1. In the game console, paste this **grabber** and press Enter:
+   ```js
+   (()=>{const g=(window.__grab=window.__grab||[]);const m=u=>/recordings|leaderboard/.test(String(u));function h(url,text){const tm=String(url).match(/[?&]trackId=([0-9a-fA-F]+)/);if(tm){window.__trackId=tm[1];console.log('[grab] trackId =',tm[1]);}let d;try{d=JSON.parse(text)}catch{return}(function w(o,c){if(!o||typeof o!='object')return;if(Array.isArray(o)){for(const x of o)w(x,c);return}const n={frames:o.frames??c.frames,name:o.name??o.nickname??c.name};if(typeof o.recording=='string'&&o.recording.length>20){g.length=0;g.push({recording:o.recording,...n});console.log('[grab]',n.name,'frames='+n.frames,'len='+o.recording.length);}for(const k in o)w(o[k],n);})(d,{})}const of=window.fetch;window.fetch=function(u){const url=String((u&&u.url)||u);const p=of.apply(this,arguments);if(m(url))p.then(r=>{try{r.clone().text().then(t=>h(url,t))}catch(e){}});return p};const op=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(a,u){this.__u=u;return op.apply(this,arguments)};const sd=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){if(m(this.__u))this.addEventListener('load',()=>{try{h(this.__u,this.responseText)}catch(e){}});return sd.apply(this,arguments)};window.__dumpRec=(n='rec')=>{const b=new Blob([JSON.stringify(g)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n+'.json';a.click();console.log('dumped',g.length)};return'grabber active'})()
+   ```
+2. Open your track's **leaderboard** and **WATCH** the lap you want (click the entry →
+   Watch). The console prints `[grab] NAME frames=… len=…`.
+3. Type `__dumpRec("rec")` → downloads **`rec.json`**.
+4. Open `rec.json` (double-click it / open in Notepad). Find the long `"recording"`
+   text and the `"frames"` number. Then in the **terminal**:
+   ```powershell
+   node bridge/decode-recording.js "PASTE_THE_RECORDING_STRING" FRAMES data/grabbed/NAME_wr.json
+   ```
+
+Either way, you now have **`data/grabbed/NAME_wr.json`** — the lap to copy.
+
+---
+
+## STEP 3 — (Optional) Make it faster
+
+Skip this if you just want to copy the lap as-is. To try to **beat** it:
+```powershell
+node bridge/optimize-lap.js data/grabbed/NAME_wr.json tracks/NAME.json 8000 data/grabbed/NAME_best.json
+```
+- It tries 8000 small tweaks, keeping only laps that **finish faster and still finish**.
+- It prints `improved -> 33741 (33.741s)` each time it finds a better lap, and **saves
+  after every improvement** to `NAME_best.json`.
+- Each tweak takes ~1 second, so 8000 tries ≈ 2+ hours. You can stop it anytime with
+  **Ctrl+C** — the best so far is already saved.
+- To keep improving later, run it again with `NAME_best.json` as BOTH the input and output.
+
+If you skip this step, just use `NAME_wr.json` in Step 4 instead of `NAME_best.json`.
+
+---
+
+## STEP 4 — Play it out in the game ▶️
+
+1. Get the recording text. In the **terminal**:
+   ```powershell
+   node -e "console.log(require('./data/grabbed/NAME_best.json').recording)"
+   ```
+   (Use `NAME_wr.json` if you skipped Step 3.) Copy the long line it prints.
+2. In the game, go to **your track** (don't start driving yet). Open the **Console** (F12).
+3. Paste this, but first replace `PASTE_RECORDING_HERE` with the line you copied:
+   ```js
+   (() => {
+     const REC = 'PASTE_RECORDING_HERE';
+     const ids = new Set(); let on = true;
+     const P = Worker.prototype; if (!P.__o) P.__o = P.postMessage; const o = P.__o;
+     P.postMessage = function (m, t) {
+       try { if (on && m && typeof m === 'object') {
+         if (m.messageType === 3 && m.carRecording == null) { ids.add(m.carId); m = { ...m, carRecording: REC }; console.log('[play] driving the lap'); }
+         if (m.messageType === 6 && ids.has(m.carId)) return undefined;
+         if (m.messageType === 4) ids.delete(m.carId);
+       } } catch (e) {}
+       return o.call(this, m, t);
+     };
+     window.__playOff = () => { on = false; P.postMessage = o; console.log('[play] off'); };
+     console.log('[play] active — enter the track and press an arrow key.');
+   })();
+   ```
+4. **Enter the track** (play mode) and **press an arrow key once**. The car drives the
+   lap by itself, perfectly. 🏁
+5. To drive normally again, type `__playOff()` (or just refresh the page).
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `node : not recognized` | Install Node.js from nodejs.org, reopen PowerShell. |
+| `cd` says path not found | Check the project folder path; keep the quotes. |
+| Step 1 `createCar: false` | Press **R** in the game to restart the track, then `__dump` again. |
+| `make-track` can't find the file | Check the path/filename matches what's in your Downloads. |
+| `fetch-recording` says HTTP 403 / error | Your network may block it — use **Way B** (browser grab) instead. |
+| Step 4: car doesn't move | Make sure you saw `[play] driving the lap` in the console, then pressed an arrow key. If it printed but the car's still, tell the helper. |
+| `seed does not finish in this sim — track/seed mismatch?` | You picked the **wrong track** for that lap. A lap is button presses for **one** track; on any other track the car drives off and never finishes. Use the matching track: `hollowdunes_best.json` ↔ `tracks/hollowdunes.json`, `desert_wr.json` ↔ `tracks/desert.json`, etc. The saved output from a mismatch is **not valid** — rerun with the right track. |
+| Wrong track | The recording only works on the track it was made for. Use the matching track. |
+| Game isn't 0.6.2 | The tools target 0.6.2; if the game updates, the data won't match. |
+
+---
+
+## Quick cheat sheet
+
+```powershell
+cd "C:\Users\LIXINYUAN\interesting stuff\polytrack-ai"
+
+# 1. (after capturing NAME.json in the browser)
+node train/make-track.js "C:\Users\LIXINYUAN\Downloads\NAME.json" NAME
+
+# 2. get the world record lap (needs trackId)
+node bridge/fetch-recording.js TRACKID 1 data/grabbed/NAME_wr.json
+
+# 3. (optional) make it faster
+node bridge/optimize-lap.js data/grabbed/NAME_wr.json tracks/NAME.json 8000 data/grabbed/NAME_best.json
+
+# 4. print the recording to paste into the play script
+node -e "console.log(require('./data/grabbed/NAME_best.json').recording)"
+```
+
+---
+
+## Appendix A — if `data/constants.json` is missing
+
+It holds the shared car/physics data (same for every 0.6.2 track). Capture it once:
+do **Step 1** on any track, but when you run `__dump`, the file's `init` may be `false`.
+To get `init`, do Step 1 with a **fresh page reload**: paste the Step-1 hook the
+instant the page loads (before the menu finishes), then enter a track and `__dump`.
+Rename the download to `constants.json` and put it in the `data/` folder. (You only
+ever need to do this once.)
